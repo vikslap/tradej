@@ -1,0 +1,976 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Trade Log</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one working column — sticky tab bar, then the active view; numbers set in mono like a contract note */
+:root {
+  --bg: #F3F5F4;
+  --surface: #FFFFFF;
+  --sunk: #E8ECEA;
+  --line: #D6DCD9;
+  --fg: #16201D;
+  --muted: #5D6B66;
+  --accent: #0F6B57;
+  --accent-ink: #FFFFFF;
+  --accent-soft: #DCEFE9;
+  --gain: #137A3F;
+  --gain-soft: #E1F3E7;
+  --loss: #B3261E;
+  --loss-soft: #FBE4E2;
+  --open: #8A5A00;
+  --open-soft: #FCF0D4;
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --body: "Figtree", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0F1513; --surface: #161E1B; --sunk: #1D2724; --line: #2A3632; --fg: #E4ECE8; --muted: #93A39D;
+    --accent: #4FC3A1; --accent-ink: #062019; --accent-soft: #173A31; --gain: #5BCB86; --gain-soft: #163222;
+    --loss: #F08A80; --loss-soft: #3A1D1A; --open: #E8B45A; --open-soft: #3A2D12; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0F1513; --surface: #161E1B; --sunk: #1D2724; --line: #2A3632; --fg: #E4ECE8; --muted: #93A39D;
+  --accent: #4FC3A1; --accent-ink: #062019; --accent-soft: #173A31; --gain: #5BCB86; --gain-soft: #163222;
+  --loss: #F08A80; --loss-soft: #3A1D1A; --open: #E8B45A; --open-soft: #3A2D12; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 15px; line-height: 1.5; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
+.wrap { max-width: 1080px; margin: 0 auto; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+header.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line); }
+header.bar .wrap { display: flex; align-items: center; gap: 16px; padding-block: 10px; flex-wrap: wrap; }
+.brand { font-family: var(--display); font-weight: 700; font-size: 20px; letter-spacing: -0.01em; display: flex; align-items: baseline; gap: 8px; }
+.brand small { font-family: var(--mono); font-size: 11px; font-weight: 400; color: var(--muted); letter-spacing: 0.04em; }
+nav.tabs { display: flex; gap: 4px; overflow-x: auto; margin-left: auto; }
+nav.tabs a { text-decoration: none; color: var(--muted); padding: 6px 12px; border-radius: 999px; font-weight: 500; font-size: 14px; white-space: nowrap; }
+nav.tabs a[aria-current="page"] { background: var(--accent); color: var(--accent-ink); }
+nav.tabs a:hover:not([aria-current="page"]) { background: var(--sunk); color: var(--fg); }
+main { padding-block: 20px 48px; display: grid; gap: 20px; }
+h1 { font-family: var(--display); font-size: 28px; line-height: 1.15; margin: 0; letter-spacing: -0.015em; text-wrap: balance; }
+h2 { font-family: var(--display); font-size: 17px; margin: 0; letter-spacing: -0.005em; }
+.sub { color: var(--muted); margin: 4px 0 0; font-size: 14px; }
+.head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; min-width: 0; }
+.num, .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.pos { color: var(--gain); } .neg { color: var(--loss); }
+.banner { padding: 10px 14px; border-radius: var(--radius); font-size: 14px; background: var(--open-soft); color: var(--open); }
+.banner.ok { background: var(--gain-soft); color: var(--gain); }
+.banner.err { background: var(--loss-soft); color: var(--loss); }
+
+/* buttons & inputs */
+.btn { appearance: none; border: 1px solid var(--accent); background: var(--accent); color: var(--accent-ink); font: 600 14px var(--body); padding: 9px 16px; border-radius: 8px; cursor: pointer; }
+.btn:hover { filter: brightness(1.07); }
+.btn.ghost { background: transparent; color: var(--fg); border-color: var(--line); }
+.btn.ghost:hover { background: var(--sunk); filter: none; }
+.btn.danger { background: var(--loss); border-color: var(--loss); color: #fff; }
+.btn:disabled { opacity: .55; cursor: default; }
+.btn:focus-visible, nav.tabs a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .chip:focus-visible, tr.row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+label.f { display: grid; gap: 4px; min-width: 0; }
+label.f > span { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+input, select, textarea { font: 15px var(--body); color: var(--fg); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; width: 100%; min-width: 0; }
+input.num { font-family: var(--mono); }
+textarea { resize: vertical; }
+.grid4 { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.span2 { grid-column: span 2; } .span4 { grid-column: 1 / -1; }
+@media (max-width: 720px) { .grid4 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.hint { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
+fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 12px; }
+legend { font-family: var(--display); font-weight: 600; font-size: 16px; margin-bottom: 4px; padding: 0; }
+
+/* stats */
+.tiles { display: grid; gap: 1px; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--line); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+.tile { background: var(--surface); padding: 14px 16px; min-width: 0; }
+.tile .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.tile .v { font-family: var(--mono); font-size: 20px; font-weight: 500; margin-top: 4px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile.hero .v { font-size: 26px; }
+@media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.cols3 { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 900px) { .cols3 { grid-template-columns: 1fr; } }
+.chart-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.years { display: flex; gap: 4px; flex-wrap: wrap; }
+.chip { appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--muted); font: 500 13px var(--body); padding: 4px 10px; border-radius: 999px; cursor: pointer; }
+.chip[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+svg.chart { width: 100%; height: auto; display: block; }
+svg.chart text { fill: var(--muted); font-family: var(--mono); font-size: 11px; }
+
+/* tables */
+.tbl-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td { padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+td.r, th.r { text-align: right; }
+tr.row { cursor: pointer; }
+tr.row:hover td { background: var(--sunk); }
+tbody tr:last-child td { border-bottom: 0; }
+.pill { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; padding: 2px 8px; border-radius: 999px; text-transform: uppercase; }
+.pill.open { background: var(--open-soft); color: var(--open); }
+.pill.long { background: var(--accent-soft); color: var(--accent); }
+.pill.short { background: var(--sunk); color: var(--fg); }
+.tag { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 6px; }
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.toolbar input { max-width: 220px; margin-left: auto; }
+.empty { text-align: center; padding: 40px 16px; display: grid; gap: 12px; justify-items: center; }
+.empty p { max-width: 46ch; color: var(--muted); margin: 0; }
+.drop { border: 1.5px dashed var(--line); border-radius: var(--radius); padding: 28px 16px; text-align: center; display: grid; gap: 6px; cursor: pointer; background: var(--surface); }
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+ol.steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+.rate-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px 20px; gap: 10px; align-items: center; padding-block: 6px; border-bottom: 1px solid var(--line); }
+.rate-row:last-of-type { border-bottom: 0; }
+.rate-row small { display: block; color: var(--muted); font-size: 12px; }
+.split { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.calc { display: flex; gap: 16px; flex-wrap: wrap; font-size: 14px; color: var(--muted); }
+.calc b { color: var(--fg); font-family: var(--mono); font-weight: 500; }
+.signout { appearance: none; border: 0; background: none; color: var(--muted); font: 500 13px var(--body); cursor: pointer; padding: 4px 6px; }
+.signout:hover { color: var(--fg); }
+.cal { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal .dow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); text-align: center; font-weight: 600; padding-bottom: 2px; }
+.cal .day { appearance: none; border: 1px solid var(--line); border-radius: 6px; min-height: 54px; padding: 4px 6px; text-align: left; background: var(--surface); color: var(--fg); font: 12px var(--body); display: grid; align-content: space-between; min-width: 0; }
+.cal .day.blank { border-color: transparent; background: transparent; }
+.cal .day.has { cursor: pointer; }
+.cal .day.has:hover { outline: 2px solid var(--accent); outline-offset: -1px; }
+.cal .day .amt { font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.cal .day.today .dn { color: var(--accent); font-weight: 700; }
+@media (max-width: 480px) { .cal .day { min-height: 44px; padding: 3px 4px; } .cal .day .amt { font-size: 10px; } }
+.cols2 { display: grid; gap: 16px; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+@media (max-width: 900px) { .cols2 { grid-template-columns: 1fr; } }
+.legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+.shots { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+.shot { position: relative; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--sunk); aspect-ratio: 16 / 10; max-width: 100%; }
+.shot img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shot a { display: block; height: 100%; }
+.shot button { position: absolute; top: 6px; right: 6px; appearance: none; border: 0; border-radius: 999px; background: var(--fg); color: var(--bg); font: 600 12px var(--body); padding: 3px 8px; cursor: pointer; }
+.shot .new { position: absolute; left: 6px; bottom: 6px; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; background: var(--accent); color: var(--accent-ink); border-radius: 999px; padding: 2px 7px; }
+.add-shot { border: 1.5px dashed var(--line); border-radius: 8px; display: grid; place-items: center; aspect-ratio: 16 / 10; color: var(--muted); font-size: 13px; cursor: pointer; text-align: center; padding: 8px; }
+.add-shot:hover { border-color: var(--accent); color: var(--accent); }
+.daychip { display: inline-flex; gap: 6px; align-items: center; }
+@media (prefers-reduced-motion: no-preference) { .view { animation: rise .18s ease-out; } @keyframes rise { from { transform: translateY(4px); opacity: .6 } to { transform: none; opacity: 1 } } }
+</style>
+
+</head>
+<body>
+<header class="bar">
+  <div class="wrap">
+    <div class="brand">Trade Log <small id="where">loading…</small></div>
+    <nav class="tabs" aria-label="Sections">
+      <a href="#dashboard" data-view="dashboard">Dashboard</a>
+      <a href="#trades" data-view="trades">Trades</a>
+      <a href="#log" data-view="log">Log trade</a>
+      <a href="#import" data-view="import">Import</a>
+      <a href="#rates" data-view="rates">Charges</a>
+    </nav>
+    <button class="signout" id="signout" hidden>Sign out</button>
+  </div>
+</header>
+<div class="wrap"><main id="app" aria-live="polite"></main></div>
+
+<script>
+/* ---------- charges (Zerodha, Oct 2026 — after the 1 Apr 2026 STT increase) ---------- */
+const DEFAULT_RATES = {
+  brokerageFno: 20, brokerageEquity: 0,
+  sttFutures: 0.0005, sttOptions: 0.0015, sttEquity: 0.001,
+  txnFutures: 0.0000183, txnOptions: 0.0003553, txnEquity: 0.0000307,
+  sebi: 0.000001, stampFutures: 0.00002, stampOptions: 0.00003, stampEquity: 0.00015,
+  gst: 0.18, dpPerSell: 15.34,
+};
+const RATE_LABELS = {
+  brokerageFno: ["Brokerage per F&O order", "inr"], brokerageEquity: ["Brokerage per delivery order", "inr"],
+  sttFutures: ["STT on futures (sell side)", "pct"], sttOptions: ["STT on options (sell side, on premium)", "pct"],
+  sttEquity: ["STT on delivery (buy and sell)", "pct"], txnFutures: ["Exchange charge, futures", "pct"],
+  txnOptions: ["Exchange charge, options (on premium)", "pct"], txnEquity: ["Exchange charge, delivery", "pct"],
+  sebi: ["SEBI fee (₹10 per crore)", "pct"], stampFutures: ["Stamp duty, futures (buy side)", "pct"],
+  stampOptions: ["Stamp duty, options (buy side)", "pct"], stampEquity: ["Stamp duty, delivery (buy side)", "pct"],
+  gst: ["GST on brokerage + exchange + SEBI", "pct"], dpPerSell: ["DP charge per delivery sell", "inr"],
+};
+const INSTRUMENTS = ["Futures", "Options", "Equity delivery"];
+const STRATEGIES = ["Positional", "Swing", "Covered call", "Hedge", "Cash-and-carry", "Other"];
+const EMOTIONS = ["Calm", "Confident", "Anxious", "Greedy", "Fearful", "Impatient", "Revenge", "FOMO"];
+const MISTAKES = ["None", "Early exit", "Late exit", "Moved stop", "No stop", "Oversized", "Chased entry", "Ignored plan", "Averaged loser"];
+
+function estimateCharges(instrument, buy, sell, r) {
+  const turnover = buy + sell;
+  const brokerage = instrument === "Equity delivery" ? r.brokerageEquity * 2 : r.brokerageFno * 2;
+  const stt = instrument === "Futures" ? sell * r.sttFutures : instrument === "Options" ? sell * r.sttOptions : turnover * r.sttEquity;
+  const txn = turnover * (instrument === "Futures" ? r.txnFutures : instrument === "Options" ? r.txnOptions : r.txnEquity);
+  const sebi = turnover * r.sebi;
+  const stamp = buy * (instrument === "Futures" ? r.stampFutures : instrument === "Options" ? r.stampOptions : r.stampEquity);
+  const gst = r.gst * (brokerage + txn + sebi);
+  return brokerage + stt + txn + sebi + stamp + gst + (instrument === "Equity delivery" ? r.dpPerSell : 0);
+}
+
+const isNum = (v) => v !== null && v !== undefined && v !== "" && Number.isFinite(Number(v));
+function metrics(t, r) {
+  const qty = Number(t.quantity), entry = Number(t.entry_price);
+  const risk = isNum(t.stop_loss) ? Math.abs(entry - Number(t.stop_loss)) * qty : null;
+  if (!isNum(t.exit_price)) return { open: true, risk };
+  const exit = Number(t.exit_price);
+  const buy = (t.direction === "Short" ? exit : entry) * qty;
+  const sell = (t.direction === "Short" ? entry : exit) * qty;
+  const gross = sell - buy;
+  const actual = isNum(t.actual_charges);
+  const charges = actual ? Number(t.actual_charges) : estimateCharges(t.instrument, buy, sell, r);
+  const net = gross - charges;
+  const days = t.exit_date && t.entry_date ? Math.round((Date.parse(t.exit_date) - Date.parse(t.entry_date)) / 864e5) : null;
+  return { open: false, gross, charges, estimated: !actual, net, risk, rr: risk > 0 ? net / risk : null, days };
+}
+
+function stats(trades, r, year) {
+  const rows = trades.map((t) => ({ t, m: metrics(t, r) }));
+  const closed = rows.filter((x) => !x.m.open);
+  const nets = closed.map((x) => x.m.net);
+  const wins = nets.filter((n) => n > 0), losses = nets.filter((n) => n < 0);
+  const sum = (a) => a.reduce((s, x) => s + x, 0);
+  const avg = (a) => (a.length ? sum(a) / a.length : null);
+  const rs = closed.map((x) => x.m.rr).filter((x) => x !== null);
+  const group = (keyFn) => {
+    const m = new Map();
+    for (const x of closed) {
+      const k = keyFn(x.t) || "Not tagged";
+      const g = m.get(k) || { key: k, n: 0, w: 0, net: 0 };
+      g.n++; if (x.m.net > 0) g.w++; g.net += x.m.net; m.set(k, g);
+    }
+    return [...m.values()].sort((a, b) => b.net - a.net);
+  };
+  let run = 0;
+  const monthly = Array.from({ length: 12 }, (_, i) => {
+    const inM = closed.filter((x) => x.t.exit_date && +x.t.exit_date.slice(0, 4) === year && +x.t.exit_date.slice(5, 7) === i + 1);
+    const net = sum(inM.map((x) => x.m.net)); run += net;
+    return { m: ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][i], n: inM.length, net, cum: run };
+  });
+  return {
+    closed: closed.length, open: rows.length - closed.length, wins: wins.length, losses: losses.length,
+    winRate: closed.length ? wins.length / closed.length : null,
+    gross: sum(closed.map((x) => x.m.gross)), charges: sum(closed.map((x) => x.m.charges)), net: sum(nets),
+    avgWin: avg(wins), avgLoss: avg(losses), pf: losses.length ? sum(wins) / -sum(losses) : null,
+    expectancy: closed.length ? sum(nets) / closed.length : null, avgR: avg(rs),
+    best: wins.length ? Math.max(...wins) : null, worst: losses.length ? Math.min(...losses) : null,
+    plan: closed.length ? closed.filter((x) => x.t.followed_plan === "Yes").length / closed.length : null,
+    byStrategy: group((t) => t.strategy), byInstrument: group((t) => t.instrument), byMistake: group((t) => t.mistake),
+    monthly,
+  };
+}
+
+/* ---------- Zerodha tradebook CSV ---------- */
+function parseCSV(text) {
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === ",") { row.push(cell); cell = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(cell); rows.push(row); row = []; cell = ""; }
+    else cell += c;
+  }
+  if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((c) => c.trim() !== ""));
+}
+const MON = "JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC";
+function parseSymbol(sym, seg) {
+  const s = sym.toUpperCase();
+  if (seg !== "FO") return { underlying: s, instrument: "Equity delivery", option_type: null, strike: null };
+  let m = s.match(new RegExp(`^(.+?)(\\d{2})(${MON})(\\d+(?:\\.\\d+)?)(CE|PE)$`));
+  if (m) return { underlying: m[1], instrument: "Options", option_type: m[5], strike: +m[4] };
+  m = s.match(new RegExp(`^(.+?)(\\d{2})(${MON})FUT$`));
+  if (m) return { underlying: m[1], instrument: "Futures", option_type: null, strike: null };
+  m = s.match(/^(.+?)(\d{2})([1-9OND])(\d{2})(\d+(?:\.\d+)?)(CE|PE)$/);
+  if (m) return { underlying: m[1], instrument: "Options", option_type: m[6], strike: +m[5] };
+  const opt = /(CE|PE)$/.test(s);
+  return { underlying: s, instrument: opt ? "Options" : "Futures", option_type: opt ? s.slice(-2) : null, strike: null };
+}
+function toIso(v) {
+  v = (v || "").trim(); if (!v) return null;
+  let s = v.includes("T") ? v : v.replace(" ", "T");
+  if (!/([+-]\d{2}:?\d{2}|Z)$/.test(s)) s = (s.length === 10 ? s + "T00:00:00" : s) + "+05:30";
+  return Number.isNaN(Date.parse(s)) ? null : s;
+}
+function toDate(v) {
+  v = (v || "").trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
+  const m = v.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : null;
+}
+function parseTradebook(text, fileName) {
+  const rows = parseCSV(text);
+  if (!rows.length) return { fills: [], skipped: [`${fileName}: file is empty`] };
+  const head = rows[0].map((h) => h.trim().toLowerCase().replace(/\s+/g, "_"));
+  const need = ["symbol", "trade_type", "quantity", "price", "trade_id"].filter((k) => !head.includes(k));
+  if (need.length) return { fills: [], skipped: [`${fileName}: not a Zerodha tradebook (missing ${need.join(", ")})`] };
+  const col = (r, k) => { const i = head.indexOf(k); return i < 0 ? "" : (r[i] || "").trim(); };
+  const fills = [], skipped = [];
+  rows.slice(1).forEach((r, i) => {
+    const seg = (col(r, "segment") || "EQ").toUpperCase();
+    if (seg !== "EQ" && seg !== "FO") return skipped.push(`${fileName} row ${i + 2}: ${seg} segment not supported`);
+    const side = col(r, "trade_type").toLowerCase();
+    const qty = +col(r, "quantity").replace(/,/g, ""), price = +col(r, "price").replace(/,/g, "");
+    const at = toIso(col(r, "order_execution_time")) || toIso(col(r, "trade_date"));
+    if ((side !== "buy" && side !== "sell") || !(qty > 0) || !(price >= 0) || !at) return skipped.push(`${fileName} row ${i + 2}: unreadable row`);
+    fills.push({ exchange: (col(r, "exchange") || "NSE").toUpperCase(), segment: seg, trade_id: col(r, "trade_id"),
+      symbol: col(r, "symbol").toUpperCase(), side, quantity: qty, price, executed_at: at, expiry: toDate(col(r, "expiry_date")) });
+  });
+  return { fills, skipped };
+}
+const istDate = (iso) => new Date(Date.parse(iso) + 5.5 * 36e5).toISOString().slice(0, 10);
+const round4 = (n) => Math.round(n * 1e4) / 1e4;
+/* One trade runs from flat → position → flat; scale-ins/outs are averaged. */
+function buildTrades(fills) {
+  if (!fills.length) return [];
+  const list = [...fills].sort((a, b) => Date.parse(a.executed_at) - Date.parse(b.executed_at) || a.trade_id.localeCompare(b.trade_id, undefined, { numeric: true }));
+  const symbol = list[0].symbol;
+  const p = parseSymbol(symbol, list[0].segment);
+  const base = { symbol, ...p, expiry: (list.find((f) => f.expiry) || {}).expiry || null };
+  const out = []; let pos = 0, c = null;
+  const closed = (cy, qty, key, date) => out.push({ ...base, import_key: key, direction: cy.dir, quantity: qty, entry_date: cy.start,
+    entry_price: round4(cy.oV / cy.oQ), exit_date: date, exit_price: round4(cy.cV / cy.cQ) });
+  for (const f of list) {
+    const sign = f.side === "buy" ? 1 : -1, d = istDate(f.executed_at); let rem = f.quantity;
+    while (rem > 1e-9) {
+      if (pos === 0 || !c) { c = { dir: sign > 0 ? "Long" : "Short", first: f.trade_id, start: d, oQ: rem, oV: rem * f.price, cQ: 0, cV: 0, last: null }; pos = sign * rem; rem = 0; }
+      else if (Math.sign(pos) === sign) { c.oQ += rem; c.oV += rem * f.price; pos += sign * rem; rem = 0; }
+      else {
+        const q = Math.min(rem, Math.abs(pos)); c.cQ += q; c.cV += q * f.price; c.last = d; pos += sign * q; rem -= q;
+        if (Math.abs(pos) < 1e-9) { pos = 0; closed(c, c.oQ, `${symbol}|${c.first}`, d); c = null; }
+      }
+    }
+  }
+  if (c && pos !== 0) {
+    if (c.cQ > 0) closed(c, c.cQ, `${symbol}|${c.first}|partial`, c.last);
+    out.push({ ...base, import_key: `${symbol}|${c.first}`, direction: c.dir, quantity: Math.abs(pos), entry_date: c.start,
+      entry_price: round4(c.oV / c.oQ), exit_date: null, exit_price: null });
+  }
+  return out;
+}
+const safeId = (s) => s.replace(/[^A-Za-z0-9_\-.:@+]/g, (ch) => "~" + ch.charCodeAt(0).toString(16)).slice(0, 190);
+
+/* ---------- storage: private per-user db when available, else this device ---------- */
+function localStore() {
+  const K = "tradelog.v1";
+  const read = () => { try { return JSON.parse(localStorage.getItem(K)) || {}; } catch { return {}; } };
+  const write = (d) => { try { localStorage.setItem(K, JSON.stringify(d)); } catch {} };
+  let listener = null;
+  const emit = () => listener && listener(Object.entries(read().trades || {}).map(([id, t]) => ({ ...t, id })));
+  return {
+    kind: "local",
+    watchTrades(fn) { listener = fn; emit(); },
+    async saveTrade(id, data) { const d = read(); d.trades = d.trades || {}; id = id || "t" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); d.trades[id] = data; write(d); emit(); return id; },
+    async deleteTrade(id) { const d = read(); if (d.trades) delete d.trades[id]; write(d); emit(); },
+    async getFills(key) { return (read().fills || {})[key] || null; },
+    async setFills(key, doc) { const d = read(); d.fills = d.fills || {}; d.fills[key] = doc; write(d); },
+    async getRates() { return read().rates || null; },
+    async setRates(r) { const d = read(); d.rates = r; write(d); },
+  };
+}
+function dbStore(db, uid) {
+  const root = db.doc(`data/users/${uid}/journal`);
+  const trades = root.collection("trades"), fills = root.collection("fills");
+  const settings = db.doc(`data/users/${uid}/settings`);
+  return {
+    kind: "db",
+    watchTrades(fn, onErr) { trades.onSnapshot((snap) => fn(snap.docs.map((d) => ({ ...d.data(), id: d.id }))), onErr); },
+    async saveTrade(id, data) { const ref = id ? trades.doc(id) : trades.doc(); await ref.set(data); return ref.id; },
+    async deleteTrade(id) { await trades.doc(id).delete(); },
+    async getFills(key) { const s = await fills.doc(key).get(); return s.exists ? s.data() : null; },
+    async setFills(key, doc) { await fills.doc(key).set(doc); },
+    async getRates() { const s = await settings.get(); return s.exists ? (s.data().rates || null) : null; },
+    async setRates(r) { await settings.set({ rates: r }); },
+  };
+}
+
+function supaStore(sb, uid) {
+  let trades = [], listener = null;
+  const emit = () => listener && listener(trades.slice());
+  const ok = ({ error, data }) => { if (error) throw error; return data; };
+  async function load() {
+    const all = [];
+    for (let from = 0; ; from += 1000) {
+      const data = ok(await sb.from("trades").select("id,data").order("id").range(from, from + 999));
+      all.push(...data.map((r) => ({ ...r.data, id: r.id })));
+      if (data.length < 1000) break;
+    }
+    trades = all; emit();
+  }
+  return {
+    kind: "supabase", shots: true,
+    watchTrades(fn, onErr) { listener = fn; load().catch((e) => onErr && onErr(e)); },
+    async saveTrade(id, data) {
+      id = id || (crypto.randomUUID ? crypto.randomUUID() : "t" + Date.now().toString(36) + Math.random().toString(36).slice(2));
+      ok(await sb.from("trades").upsert({ user_id: uid, id, data, updated_at: new Date().toISOString() }, { onConflict: "user_id,id" }));
+      const row = { ...data, id }, i = trades.findIndex((t) => t.id === id);
+      if (i >= 0) trades[i] = row; else trades.push(row);
+      emit(); return id;
+    },
+    async deleteTrade(id) {
+      const t = trades.find((x) => x.id === id);
+      ok(await sb.from("trades").delete().eq("id", id));
+      if (t && t.screenshots && t.screenshots.length) await sb.storage.from("screenshots").remove(t.screenshots);
+      trades = trades.filter((x) => x.id !== id); emit();
+    },
+    async getFills(key) { const d = ok(await sb.from("fills").select("data").eq("key", key).maybeSingle()); return d ? d.data : null; },
+    async setFills(key, doc) { ok(await sb.from("fills").upsert({ user_id: uid, key, data: doc }, { onConflict: "user_id,key" })); },
+    async getRates() { const d = ok(await sb.from("settings").select("rates").maybeSingle()); return d ? d.rates : null; },
+    async setRates(r) { ok(await sb.from("settings").upsert({ user_id: uid, rates: r })); },
+    async uploadShot(tradeId, blob) {
+      const path = `${uid}/${safeId(tradeId)}/${Date.now()}-${Math.random().toString(36).slice(2, 6)}.jpg`;
+      ok(await sb.storage.from("screenshots").upload(path, blob, { contentType: "image/jpeg" }));
+      return path;
+    },
+    async removeShots(paths) { if (paths.length) ok(await sb.storage.from("screenshots").remove(paths)); },
+    async shotUrls(paths) {
+      if (!paths.length) return {};
+      const data = ok(await sb.storage.from("screenshots").createSignedUrls(paths, 3600));
+      const m = {}; (data || []).forEach((d) => { if (d.signedUrl) m[d.path] = d.signedUrl; }); return m;
+    },
+  };
+}
+async function shrinkImage(file) {
+  const img = await createImageBitmap(file);
+  const k = Math.min(1, 1600 / Math.max(img.width, img.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+  const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+  return new Promise((res) => c.toBlob(res, "image/jpeg", 0.85));
+}
+
+/* ---------- app state ---------- */
+const S = { store: null, trades: [], loaded: false, rates: { ...DEFAULT_RATES }, view: "dashboard", editId: null,
+  year: new Date().getFullYear(), filter: "all", q: "", importPreview: null, flash: null, confirmDelete: false,
+  needLogin: false, sb: null, calMonth: null, day: null, shotQueue: [], shotRemove: new Set(), shotCache: {}, formFor: undefined };
+const app = document.getElementById("app");
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const inr = (n, d = 0) => (n === null || n === undefined || Number.isNaN(n) ? "–" : (n < 0 ? "−" : "") + "₹" + Math.abs(n).toLocaleString("en-IN", { maximumFractionDigits: d, minimumFractionDigits: d }));
+const pct = (n, d = 0) => (n === null || n === undefined ? "–" : (n * 100).toFixed(d) + "%");
+const tone = (n) => (n === null || n === undefined || n === 0 ? "" : n > 0 ? "pos" : "neg");
+const fmtD = (d) => (d ? new Date(d + "T00:00:00").toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "2-digit" }) : "–");
+const opts = (list, val, blank = true) => (blank ? '<option value="">—</option>' : "") + list.map((o) => `<option${o === val ? " selected" : ""}>${esc(o)}</option>`).join("");
+
+function setView(v) {
+  S.view = v; S.flash = S.view === "import" ? S.flash : null; S.confirmDelete = false;
+  document.querySelectorAll("nav.tabs a").forEach((a) => { if (a.dataset.view === v) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current"); });
+  render();
+}
+function route() {
+  const h = (location.hash || "#dashboard").slice(1);
+  if (h !== "log") S.editId = null;
+  setView(["dashboard", "trades", "log", "import", "rates"].includes(h) ? h : "dashboard");
+}
+window.addEventListener("hashchange", route);
+function go(v) { if (location.hash === "#" + v) route(); else location.hash = v; }
+
+function render() {
+  const v = S.view;
+  if (S.needLogin) { app.innerHTML = viewLogin(); bindLogin(); return; }
+  if (v === "log" && S.formFor !== S.editId) { S.shotQueue.forEach((q) => URL.revokeObjectURL(q.url)); S.shotQueue = []; S.shotRemove = new Set(); S.formFor = S.editId; }
+  if (v !== "log") S.formFor = undefined;
+  if (!S.loaded) { app.innerHTML = `<div class="panel empty view"><p>Loading your trades…</p></div>`; return; }
+  app.innerHTML = `<div class="view" style="display:grid;gap:20px">${
+    v === "trades" ? viewTrades() : v === "log" ? viewForm() : v === "import" ? viewImport() : v === "rates" ? viewRates() : viewDashboard()}</div>`;
+  if (v === "trades") bindTrades(); if (v === "log") bindForm(); if (v === "import") bindImport(); if (v === "rates") bindRates(); if (v === "dashboard") bindDashboard();
+}
+
+/* ---------- dashboard ---------- */
+function emptyState() {
+  return `<div class="panel empty">
+    <h1>Your trade log is empty</h1>
+    <p>Import a tradebook from Zerodha Console, or log a trade by hand. Charges, P&amp;L and R-multiples are worked out for you.</p>
+    <div class="split"><button class="btn" data-go="import">Import tradebook</button><button class="btn ghost" data-go="log">Log a trade</button></div>
+    <p style="font-size:13px">Want to see how it looks first? <button class="chip" id="examples">Add 2 example trades</button></p>
+  </div>`;
+}
+function chart(monthly) {
+  const W = 720, H = 220, top = 14, bot = 26, left = 54, right = 8;
+  const max = Math.max(1, ...monthly.map((d) => Math.abs(d.net)));
+  const neg = monthly.some((d) => d.net < 0), pos = monthly.some((d) => d.net > 0);
+  const ph = H - top - bot;
+  const zero = top + (neg && pos ? ph / 2 : neg ? 0 : ph);
+  const sc = (neg && pos ? ph / 2 : ph) / max;
+  const slot = (W - left - right) / 12, bw = Math.min(30, slot * 0.58);
+  const tick = (val) => `<line x1="${left}" x2="${W - right}" y1="${zero - val * sc}" y2="${zero - val * sc}" stroke="var(--line)" stroke-dasharray="${val ? "3 4" : "0"}"/><text x="${left - 6}" y="${zero - val * sc + 4}" text-anchor="end">${inr(val).replace("₹", val ? "₹" : "")}</text>`;
+  const ticks = [0, ...(pos ? [max] : []), ...(neg ? [-max] : [])].map(tick).join("");
+  const bars = monthly.map((d, i) => {
+    const x = left + slot * i + (slot - bw) / 2, h = Math.abs(d.net) * sc, y = d.net >= 0 ? zero - h : zero;
+    return `<g><title>${d.m}: ${inr(d.net)} from ${d.n} trade${d.n === 1 ? "" : "s"}</title>${d.n ? `<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(h, 1.5)}" rx="3" fill="${d.net >= 0 ? "var(--gain)" : "var(--loss)"}"/>` : ""}<text x="${x + bw / 2}" y="${H - 8}" text-anchor="middle">${d.m}</text></g>`;
+  }).join("");
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly net profit and loss">${ticks}${bars}</svg>`;
+}
+const compact = (n) => {
+  const a = Math.abs(n), sign = n < 0 ? "−" : "+";
+  return sign + (a >= 1e5 ? (a / 1e5).toFixed(a >= 1e6 ? 1 : 2) + "L" : a >= 1e3 ? (a / 1e3).toFixed(1) + "k" : Math.round(a));
+};
+function closedByDay() {
+  const m = new Map();
+  for (const t of S.trades) {
+    const x = metrics(t, S.rates);
+    if (x.open || !t.exit_date) continue;
+    const d = m.get(t.exit_date) || { net: 0, n: 0 }; d.net += x.net; d.n++; m.set(t.exit_date, d);
+  }
+  return m;
+}
+function equityPanel() {
+  const days = [...closedByDay().entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  if (days.length < 2) return `<div class="panel"><h2>Equity curve</h2><p class="sub">Appears once you have closed trades on two or more days.</p></div>`;
+  let cum = 0, peak = 0, maxDD = 0, maxDDAt = null;
+  const pts = days.map(([d, v]) => { cum += v.net; peak = Math.max(peak, cum); const dd = cum - peak; if (dd < maxDD) { maxDD = dd; maxDDAt = d; } return { d, cum, dd }; });
+  const cur = pts[pts.length - 1];
+  const W = 640, H = 260, L = 58, R = 10, T = 12, eqH = 160, gap = 22, ddH = H - T - eqH - gap - 22;
+  const minC = Math.min(0, ...pts.map((p) => p.cum)), maxC = Math.max(0, ...pts.map((p) => p.cum));
+  const span = maxC - minC || 1, x = (i) => L + (i * (W - L - R)) / (pts.length - 1);
+  const y = (v) => T + (maxC - v) * (eqH / span);
+  const ddMin = Math.min(-1, maxDD), yd = (v) => T + eqH + gap + (v / ddMin) * ddH;
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(p.cum).toFixed(1)}`).join("");
+  const area = `${line}L${x(pts.length - 1).toFixed(1)},${y(0).toFixed(1)}L${x(0).toFixed(1)},${y(0).toFixed(1)}Z`;
+  const dd = pts.map((p, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${yd(p.dd).toFixed(1)}`).join("") + `L${x(pts.length - 1).toFixed(1)},${yd(0)}L${x(0)},${yd(0)}Z`;
+  const lbl = (v, yy) => `<text x="${L - 6}" y="${yy + 4}" text-anchor="end">${inr(v)}</text>`;
+  const dfmt = (d) => new Date(d + "T00:00:00").toLocaleDateString("en-IN", { month: "short", year: "2-digit" });
+  return `<div class="panel">
+    <div class="chart-head"><h2>Equity curve</h2><div class="legend"><span>Max drawdown <b class="num neg">${inr(maxDD)}</b>${maxDDAt ? ` <span class="num">(${fmtD(maxDDAt)})</span>` : ""}</span><span>Now <b class="num ${tone(cur.dd)}">${cur.dd < 0 ? inr(cur.dd) + " from peak" : "at peak"}</b></span></div></div>
+    <svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Cumulative net P&L and drawdown over time">
+      <line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>
+      ${lbl(maxC, y(maxC))}${minC < 0 ? lbl(minC, y(minC)) : ""}${maxC > 0 && minC < 0 ? lbl(0, y(0)) : ""}
+      <path d="${area}" fill="var(--accent)" fill-opacity="0.12"/>
+      <path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>
+      <circle cx="${x(pts.length - 1)}" cy="${y(cur.cum)}" r="4" fill="var(--accent)"/>
+      <text x="${L}" y="${T + eqH + 14}" text-anchor="start">Drawdown</text>
+      <line x1="${L}" x2="${W - R}" y1="${yd(0)}" y2="${yd(0)}" stroke="var(--line)"/>
+      <path d="${dd}" fill="var(--loss)" fill-opacity="0.35" stroke="var(--loss)" stroke-width="1"/>
+      ${lbl(maxDD, yd(maxDD))}
+      <text x="${L}" y="${H - 4}" text-anchor="start">${dfmt(pts[0].d)}</text>
+      <text x="${W - R}" y="${H - 4}" text-anchor="end">${dfmt(cur.d)}</text>
+    </svg></div>`;
+}
+function calendarPanel() {
+  const byDay = closedByDay();
+  const latest = [...byDay.keys()].sort().pop();
+  const ym = S.calMonth || (latest ? latest.slice(0, 7) : new Date().toISOString().slice(0, 7));
+  const [Y, M] = ym.split("-").map(Number);
+  const first = new Date(Y, M - 1, 1), daysIn = new Date(Y, M, 0).getDate(), lead = (first.getDay() + 6) % 7;
+  const prev = new Date(Y, M - 2, 1), next = new Date(Y, M, 1);
+  const key = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const inMonth = [...byDay.entries()].filter(([d]) => d.startsWith(ym));
+  const maxAbs = Math.max(1, ...inMonth.map(([, v]) => Math.abs(v.net)));
+  const total = inMonth.reduce((a, [, v]) => a + v.net, 0);
+  const todayKey = new Date().toISOString().slice(0, 10);
+  let cells = "";
+  for (let i = 0; i < lead; i++) cells += `<div class="day blank" aria-hidden="true"></div>`;
+  for (let d = 1; d <= daysIn; d++) {
+    const ds = `${ym}-${String(d).padStart(2, "0")}`, v = byDay.get(ds);
+    const pctv = v ? Math.round(18 + 62 * Math.abs(v.net) / maxAbs) : 0;
+    const bg = v ? `background: color-mix(in srgb, ${v.net >= 0 ? "var(--gain)" : "var(--loss)"} ${pctv}%, var(--surface)); color: ${pctv > 55 ? "var(--surface)" : "var(--fg)"};` : "";
+    cells += v
+      ? `<button class="day has${ds === todayKey ? " today" : ""}" data-day="${ds}" style="${bg}" title="${fmtD(ds)}: ${inr(v.net)} from ${v.n} trade${v.n === 1 ? "" : "s"}"><span class="dn">${d}</span><span class="amt">${compact(v.net)}</span></button>`
+      : `<div class="day${ds === todayKey ? " today" : ""}"><span class="dn">${d}</span></div>`;
+  }
+  return `<div class="panel">
+    <div class="chart-head"><h2>${first.toLocaleDateString("en-IN", { month: "long", year: "numeric" })}</h2>
+      <div class="years"><button class="chip" data-cal="${key(prev)}" aria-label="Previous month">←</button><button class="chip" data-cal="${key(next)}" aria-label="Next month">→</button></div></div>
+    <div class="cal">${["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((d) => `<div class="dow">${d.slice(0, window.innerWidth < 480 ? 1 : 3)}</div>`).join("")}${cells}</div>
+    <p class="sub" style="text-align:right">${inMonth.length} trading day${inMonth.length === 1 ? "" : "s"} · month <span class="num ${tone(total)}">${inr(total)}</span>. Tap a day to see its trades.</p>
+  </div>`;
+}
+function breakdown(title, rows) {
+  return `<div class="panel"><h2>${title}</h2>${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>${title.replace("By ", "")}</th><th class="r">Trades</th><th class="r">Win</th><th class="r">Net</th></tr></thead><tbody>${
+    rows.map((r) => `<tr><td>${esc(r.key)}</td><td class="r num">${r.n}</td><td class="r num">${pct(r.w / r.n)}</td><td class="r num ${tone(r.net)}">${inr(r.net)}</td></tr>`).join("")}</tbody></table></div>` : `<p class="sub">No closed trades yet.</p>`}</div>`;
+}
+function viewDashboard() {
+  if (!S.trades.length) return emptyState();
+  const s = stats(S.trades, S.rates, S.year);
+  const years = [...new Set(S.trades.map((t) => +(t.exit_date || t.entry_date).slice(0, 4)).concat(new Date().getFullYear()))].sort((a, b) => b - a);
+  const t = (k, v, cls = "", hero = false) => `<div class="tile${hero ? " hero" : ""}"><div class="k">${k}</div><div class="v ${cls}">${v}</div></div>`;
+  return `
+  <div class="head"><div><h1>Dashboard</h1><p class="sub">${s.closed} closed · ${s.open} open. Stats count closed trades only.</p></div><button class="btn" data-go="log">Log trade</button></div>
+  <div class="tiles">
+    ${t("Net P&amp;L", inr(s.net), tone(s.net), true)}${t("Win rate", pct(s.winRate, 1), "", true)}${t("Profit factor", s.pf === null ? "–" : s.pf.toFixed(2), "", true)}${t("Expectancy / trade", inr(s.expectancy), tone(s.expectancy), true)}
+    ${t("Average win", inr(s.avgWin), "pos")}${t("Average loss", inr(s.avgLoss), "neg")}${t("Average R", s.avgR === null ? "–" : s.avgR.toFixed(2) + "R", tone(s.avgR))}${t("Charges paid", inr(s.charges))}
+    ${t("Gross P&amp;L", inr(s.gross), tone(s.gross))}${t("Best trade", inr(s.best), "pos")}${t("Worst trade", inr(s.worst), "neg")}${t("Followed plan", pct(s.plan))}
+  </div>
+  <div class="panel">
+    <div class="chart-head"><h2>Monthly net P&amp;L, ${S.year}</h2><div class="years">${years.map((y) => `<button class="chip" data-year="${y}" aria-pressed="${y === S.year}">${y}</button>`).join("")}</div></div>
+    ${chart(s.monthly)}
+    <p class="sub" style="text-align:right">Year to date <span class="num ${tone(s.monthly[11].cum)}">${inr(s.monthly[11].cum)}</span></p>
+  </div>
+  <div class="cols2">${equityPanel()}${calendarPanel()}</div>
+  <div class="cols3">${breakdown("By strategy", s.byStrategy)}${breakdown("By instrument", s.byInstrument)}${breakdown("By mistake", s.byMistake)}</div>`;
+}
+function bindDashboard() {
+  app.querySelectorAll("[data-year]").forEach((b) => b.onclick = () => { S.year = +b.dataset.year; render(); });
+  app.querySelectorAll("[data-cal]").forEach((b) => b.onclick = () => { S.calMonth = b.dataset.cal; render(); });
+  app.querySelectorAll(".day.has").forEach((b) => b.onclick = () => { S.day = b.dataset.day; S.filter = "closed"; go("trades"); });
+  bindCommon();
+}
+function bindCommon() {
+  app.querySelectorAll("[data-go]").forEach((b) => b.onclick = () => go(b.dataset.go));
+  const ex = app.querySelector("#examples");
+  if (ex) ex.onclick = async () => {
+    ex.disabled = true;
+    const base = { source: "manual", import_key: null, underlying: "ITC", lot_size: 1725, quantity: 1725, actual_charges: null, emotion: null };
+    await S.store.saveTrade(null, { ...base, symbol: "ITC", instrument: "Options", option_type: "CE", strike: 285, expiry: "2026-10-27", direction: "Short", strategy: "Covered call",
+      entry_date: "2026-10-01", entry_price: 1.8, stop_loss: 3.6, target: 0.2, exit_date: "2026-10-27", exit_price: 0.05, setup: "EXAMPLE — sold ~5% OTM call against 1 lot of ITC shares", followed_plan: "Yes", mistake: "None", notes: "Example trade. Delete it from the Trades tab." });
+    await S.store.saveTrade(null, { ...base, symbol: "ITC", instrument: "Futures", option_type: null, strike: null, expiry: "2026-10-27", direction: "Long", strategy: "Positional",
+      entry_date: "2026-09-18", entry_price: 265, stop_loss: 258, target: 280, exit_date: "2026-10-10", exit_price: 262.5, setup: "EXAMPLE — bounce off 52-week low", followed_plan: "Partly", mistake: "Early exit", emotion: "Impatient", notes: "Example trade. Delete it from the Trades tab." });
+  };
+}
+
+/* ---------- trades list ---------- */
+function viewTrades() {
+  if (!S.trades.length) return emptyState();
+  const q = S.q.trim().toUpperCase();
+  const rows = S.trades.map((t) => ({ t, m: metrics(t, S.rates) }))
+    .filter((x) => S.filter === "all" || (S.filter === "open") === x.m.open)
+    .filter((x) => !S.day || x.t.exit_date === S.day)
+    .filter((x) => !q || x.t.symbol.includes(q) || (x.t.underlying || "").includes(q) || (x.t.strategy || "").toUpperCase().includes(q))
+    .sort((a, b) => (b.t.entry_date || "").localeCompare(a.t.entry_date || ""));
+  const chip = (k, l) => `<button class="chip" data-filter="${k}" aria-pressed="${S.filter === k}">${l}</button>`;
+  return `
+  <div class="head"><div><h1>Trades</h1><p class="sub">${S.trades.length} in your log. Tap a trade to add your plan and notes.</p></div><button class="btn" data-go="log">Log trade</button></div>
+  <div class="toolbar">${chip("all", "All")}${chip("open", "Open")}${chip("closed", "Closed")}${S.day ? `<span class="daychip"><button class="chip" id="clearday" aria-pressed="true">Exited ${fmtD(S.day)} ✕</button></span>` : ""}<input id="q" type="search" placeholder="Search symbol or strategy" value="${esc(S.q)}" aria-label="Search trades"></div>
+  <div class="panel" style="padding:0"><div class="tbl-wrap">${rows.length ? `<table><thead><tr>
+    <th>Entry</th><th>Symbol</th><th>Side</th><th>Strategy</th><th class="r">Qty</th><th class="r">Entry ₹</th><th class="r">Exit ₹</th><th>Exit</th><th class="r">Net P&amp;L</th><th class="r">R</th></tr></thead><tbody>${
+    rows.map(({ t, m }) => `<tr class="row" tabindex="0" data-id="${esc(t.id)}">
+      <td class="num">${fmtD(t.entry_date)}</td>
+      <td><b>${esc(t.symbol)}</b>${t.source === "csv" ? '<span class="tag">CSV</span>' : ""}<div class="sub" style="margin:0;font-size:12px">${esc(t.instrument)}</div></td>
+      <td><span class="pill ${t.direction === "Short" ? "short" : "long"}">${esc(t.direction)}</span></td>
+      <td>${esc(t.strategy || "–")}</td>
+      <td class="r num">${Number(t.quantity).toLocaleString("en-IN")}</td>
+      <td class="r num">${Number(t.entry_price).toFixed(2)}</td>
+      <td class="r num">${isNum(t.exit_price) ? Number(t.exit_price).toFixed(2) : "–"}</td>
+      <td>${m.open ? '<span class="pill open">Open</span>' : `<span class="num">${fmtD(t.exit_date)}</span>`}</td>
+      <td class="r num ${tone(m.net)}">${m.open ? "–" : inr(m.net)}</td>
+      <td class="r num">${m.rr === null || m.rr === undefined ? "–" : m.rr.toFixed(2)}</td></tr>`).join("")}</tbody></table>` : `<p class="sub" style="padding:24px;text-align:center">No trades match.</p>`}</div></div>`;
+}
+function bindTrades() {
+  bindCommon();
+  app.querySelectorAll("[data-filter]").forEach((b) => b.onclick = () => { S.filter = b.dataset.filter; render(); });
+  const cd = app.querySelector("#clearday"); if (cd) cd.onclick = () => { S.day = null; render(); };
+  const q = app.querySelector("#q");
+  if (q) q.oninput = () => { S.q = q.value; const pos = q.selectionStart; render(); const n = app.querySelector("#q"); n.focus(); n.setSelectionRange(pos, pos); };
+  app.querySelectorAll("tr.row").forEach((tr) => {
+    const open = () => { S.editId = tr.dataset.id; if (location.hash === "#log") setView("log"); else { location.hash = "log"; } };
+    tr.onclick = open; tr.onkeydown = (e) => { if (e.key === "Enter") open(); };
+  });
+}
+
+/* ---------- log / edit form ---------- */
+function viewForm() {
+  const t = S.trades.find((x) => x.id === S.editId) || null;
+  const v = (k) => (t && t[k] !== null && t[k] !== undefined ? esc(t[k]) : "");
+  const lots = t && t.lot_size ? t.quantity / t.lot_size : "";
+  const m = t ? metrics(t, S.rates) : null;
+  const inst = t ? t.instrument : "Futures";
+  return `
+  <div class="head"><div><h1>${t ? esc(t.symbol) : "Log a trade"}</h1>${t ? `<p class="sub">${t.source === "csv" ? "Imported from your tradebook. Re-importing updates prices and dates but keeps your plan, tags and notes." : "Logged by hand."}</p>` : `<p class="sub">Write the plan before you place the order: entry, stop and target.</p>`}</div>
+  ${m && !m.open ? `<div class="calc"><span>Gross <b class="${tone(m.gross)}">${inr(m.gross)}</b></span><span>Charges <b>${inr(m.charges)}</b>${m.estimated ? " est." : ""}</span><span>Net <b class="${tone(m.net)}">${inr(m.net)}</b></span>${m.rr !== null ? `<span><b>${m.rr.toFixed(2)}R</b></span>` : ""}</div>` : ""}</div>
+  <form id="tf" class="panel" style="display:grid;gap:22px" novalidate>
+    <fieldset><legend>Instrument</legend><div class="grid4">
+      <label class="f"><span>Symbol</span><input id="f-symbol" name="symbol" required value="${v("symbol")}" placeholder="ITC" autocapitalize="characters"></label>
+      <label class="f"><span>Instrument</span><select id="f-instrument" name="instrument">${opts(INSTRUMENTS, inst, false)}</select></label>
+      <label class="f"><span>Long / Short</span><select id="f-direction" name="direction">${opts(["Long", "Short"], t ? t.direction : "Long", false)}</select></label>
+      <label class="f"><span>Strategy</span><select id="f-strategy" name="strategy">${opts(STRATEGIES, t && t.strategy)}</select></label>
+      <label class="f fo"><span>Expiry</span><input id="f-expiry" name="expiry" type="date" value="${v("expiry")}"></label>
+      <label class="f opt"><span>CE / PE</span><select id="f-option_type" name="option_type">${opts(["CE", "PE"], t && t.option_type)}</select></label>
+      <label class="f opt"><span>Strike</span><input id="f-strike" name="strike" class="num" inputmode="decimal" value="${v("strike")}"></label>
+    </div></fieldset>
+    <fieldset><legend>Plan and size</legend><div class="grid4">
+      <label class="f"><span>Lots</span><input id="f-lots" name="lots" class="num" inputmode="decimal" value="${esc(lots)}" placeholder="1"></label>
+      <label class="f"><span>Lot size</span><input id="f-lot_size" name="lot_size" class="num" inputmode="decimal" value="${v("lot_size")}" placeholder="ITC 1725 · Nifty 65"></label>
+      <label class="f"><span>Quantity</span><input id="f-quantity" name="quantity" class="num" inputmode="decimal" value="${v("quantity")}" placeholder="Lots × lot size"></label>
+      <label class="f"><span>Entry date</span><input id="f-entry_date" name="entry_date" type="date" required value="${t ? v("entry_date") : new Date().toISOString().slice(0, 10)}"></label>
+      <label class="f"><span>Entry price</span><input id="f-entry_price" name="entry_price" class="num" inputmode="decimal" required value="${v("entry_price")}"></label>
+      <label class="f"><span>Stop loss</span><input id="f-stop_loss" name="stop_loss" class="num" inputmode="decimal" value="${v("stop_loss")}"></label>
+      <label class="f"><span>Target</span><input id="f-target" name="target" class="num" inputmode="decimal" value="${v("target")}"></label>
+    </div><p class="hint">For a sold option, entry price is the premium you received. Quantity fills itself from lots × lot size.</p></fieldset>
+    <fieldset><legend>Exit</legend><div class="grid4">
+      <label class="f"><span>Exit date</span><input id="f-exit_date" name="exit_date" type="date" value="${v("exit_date")}"></label>
+      <label class="f"><span>Exit price</span><input id="f-exit_price" name="exit_price" class="num" inputmode="decimal" value="${v("exit_price")}"></label>
+      <label class="f span2"><span>Actual charges ₹</span><input id="f-actual_charges" name="actual_charges" class="num" inputmode="decimal" value="${v("actual_charges")}" placeholder="From the contract note. Blank = estimate"></label>
+    </div><p class="hint">Option expired worthless? Use the expiry date and an exit price of 0.</p></fieldset>
+    <fieldset><legend>Review</legend><div class="grid4">
+      <label class="f span4"><span>Setup / reason</span><input id="f-setup" name="setup" value="${v("setup")}" placeholder="Why did you take this trade?"></label>
+      <label class="f"><span>Followed plan?</span><select id="f-followed_plan" name="followed_plan">${opts(["Yes", "Partly", "No"], t && t.followed_plan)}</select></label>
+      <label class="f"><span>Emotion</span><select id="f-emotion" name="emotion">${opts(EMOTIONS, t && t.emotion)}</select></label>
+      <label class="f span2"><span>Mistake</span><select id="f-mistake" name="mistake">${opts(MISTAKES, t && t.mistake)}</select></label>
+      <label class="f span4"><span>Notes and lessons</span><textarea id="f-notes" name="notes" rows="3">${v("notes")}</textarea></label>
+    </div></fieldset>
+    <fieldset><legend>Chart screenshots</legend>
+      ${S.store.shots ? `<div class="shots" id="shots"></div><input id="shotfile" type="file" accept="image/*" multiple hidden>
+      <p class="hint" style="margin:0">Added images are shrunk and uploaded when you save. Tap one to open it full size.</p>`
+      : `<p class="hint" style="margin:0">Screenshots are saved to your database, so they're available once you sign in to the online version.</p>`}
+    </fieldset>
+    <div id="ferr" class="banner err" hidden></div>
+    <div class="split"><button class="btn" type="submit">${t ? "Save changes" : "Add to log"}</button><button class="btn ghost" type="button" data-go="trades">Cancel</button>
+      ${t ? `<span style="margin-left:auto" class="split">${S.confirmDelete ? `<span class="sub" style="margin:0">Delete this trade for good?</span><button class="btn danger" type="button" id="del-yes">Delete</button><button class="btn ghost" type="button" id="del-no">Keep</button>` : `<button class="btn ghost" type="button" id="del">Delete trade</button>`}</span>` : ""}</div>
+  </form>`;
+}
+function renderShots() {
+  const box = app.querySelector("#shots"); if (!box) return;
+  const t = S.trades.find((x) => x.id === S.editId);
+  const saved = ((t && t.screenshots) || []).filter((p) => !S.shotRemove.has(p));
+  box.innerHTML = saved.map((p) => `<div class="shot">${S.shotCache[p] ? `<a href="${esc(S.shotCache[p])}" target="_blank" rel="noopener"><img src="${esc(S.shotCache[p])}" alt="Chart screenshot"></a>` : ""}<button type="button" data-rm="${esc(p)}">Remove</button></div>`).join("")
+    + S.shotQueue.map((q, i) => `<div class="shot"><img src="${q.url}" alt="New screenshot"><span class="new">New</span><button type="button" data-rmq="${i}">Remove</button></div>`).join("")
+    + `<label class="add-shot" for="shotfile">+ Add screenshot</label>`;
+  box.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => { S.shotRemove.add(b.dataset.rm); renderShots(); });
+  box.querySelectorAll("[data-rmq]").forEach((b) => b.onclick = () => { const [q] = S.shotQueue.splice(+b.dataset.rmq, 1); URL.revokeObjectURL(q.url); renderShots(); });
+  const missing = saved.filter((p) => !S.shotCache[p]);
+  if (missing.length) S.store.shotUrls(missing).then((m) => { Object.assign(S.shotCache, m); if (Object.keys(m).length) renderShots(); }).catch(() => {});
+}
+function bindForm() {
+  bindCommon();
+  const sf = app.querySelector("#shotfile");
+  if (sf) { sf.onchange = async () => {
+    for (const file of [...sf.files]) {
+      try { const blob = await shrinkImage(file); S.shotQueue.push({ blob, url: URL.createObjectURL(blob) }); } catch { const b = app.querySelector("#ferr"); b.textContent = `Couldn't read ${file.name} as an image.`; b.hidden = false; }
+    }
+    sf.value = ""; renderShots();
+  }; renderShots(); }
+  const f = app.querySelector("#tf"), sel = f.querySelector("#f-instrument");
+  const sync = () => { const i = sel.value; f.querySelectorAll(".fo").forEach((e) => e.hidden = i === "Equity delivery"); f.querySelectorAll(".opt").forEach((e) => e.hidden = i !== "Options"); };
+  sel.onchange = sync; sync();
+  const lots = f.querySelector("#f-lots"), ls = f.querySelector("#f-lot_size"), qty = f.querySelector("#f-quantity");
+  const fillQty = () => { if (isNum(lots.value) && isNum(ls.value)) qty.value = +lots.value * +ls.value; };
+  lots.oninput = fillQty; ls.oninput = fillQty;
+  const del = f.querySelector("#del"); if (del) del.onclick = () => { S.confirmDelete = true; render(); };
+  const no = f.querySelector("#del-no"); if (no) no.onclick = () => { S.confirmDelete = false; render(); };
+  const yes = f.querySelector("#del-yes"); if (yes) yes.onclick = async () => { yes.disabled = true; await S.store.deleteTrade(S.editId); S.editId = null; go("trades"); };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const fd = new FormData(f), g = (k) => (fd.get(k) || "").toString().trim();
+    const n = (k) => (g(k) === "" ? null : Number(g(k).replace(/,/g, "")));
+    const err = (msg) => { const b = f.querySelector("#ferr"); b.textContent = msg; b.hidden = false; };
+    const inst = g("instrument");
+    const quantity = isNum(g("lots")) && isNum(g("lot_size")) ? n("lots") * n("lot_size") : n("quantity");
+    if (!g("symbol") || !g("entry_date") || !isNum(g("entry_price")) || !(quantity > 0)) return err("Symbol, entry date, entry price and a quantity above zero are needed.");
+    for (const k of ["strike", "lot_size", "stop_loss", "target", "exit_price", "actual_charges"]) if (g(k) !== "" && !isNum(g(k).replace(/,/g, ""))) return err(`${k.replace("_", " ")} must be a number.`);
+    if ((g("exit_date") === "") !== (g("exit_price") === "")) return err("Fill in both exit date and exit price, or leave both blank.");
+    const prev = S.trades.find((x) => x.id === S.editId);
+    const data = {
+      source: prev ? prev.source : "manual", import_key: prev ? prev.import_key || null : null,
+      symbol: g("symbol").toUpperCase(), underlying: prev && prev.underlying ? prev.underlying : g("symbol").toUpperCase(),
+      instrument: inst, option_type: inst === "Options" ? g("option_type") || null : null, strike: inst === "Options" ? n("strike") : null,
+      expiry: inst === "Equity delivery" ? null : g("expiry") || null, direction: g("direction"), strategy: g("strategy") || null,
+      quantity, lot_size: n("lot_size"), entry_date: g("entry_date"), entry_price: n("entry_price"), stop_loss: n("stop_loss"), target: n("target"),
+      exit_date: g("exit_date") || null, exit_price: n("exit_price"), actual_charges: n("actual_charges"),
+      setup: g("setup") || null, followed_plan: g("followed_plan") || null, emotion: g("emotion") || null, mistake: g("mistake") || null, notes: g("notes") || null,
+      screenshots: ((prev && prev.screenshots) || []).filter((p) => !S.shotRemove.has(p)),
+    };
+    f.querySelector('button[type="submit"]').disabled = true;
+    try {
+      const id = await S.store.saveTrade(S.editId, data);
+      if (S.store.shots && (S.shotQueue.length || S.shotRemove.size)) {
+        const added = [];
+        for (const q of S.shotQueue) added.push(await S.store.uploadShot(id, q.blob));
+        await S.store.removeShots([...S.shotRemove]);
+        await S.store.saveTrade(id, { ...data, screenshots: data.screenshots.concat(added) });
+      }
+      S.editId = null; go("trades");
+    }
+    catch (e2) { f.querySelector('button[type="submit"]').disabled = false; err(e2 && e2.code === "quota_exceeded" ? "Your log is full. Delete some old trades and try again." : "Couldn't save. Check your connection and try again."); }
+  };
+}
+
+/* ---------- import ---------- */
+function viewImport() {
+  const p = S.importPreview;
+  return `
+  <div class="head"><div><h1>Import from Zerodha</h1><p class="sub">Trades are rebuilt from every buy and sell, so uploading overlapping date ranges is safe.</p></div></div>
+  <div class="panel"><ol class="steps">
+    <li>Open console.zerodha.com and go to Reports, then Tradebook.</li>
+    <li>Choose Equity or F&amp;O and a date range, then download the CSV. Do both if you trade both.</li>
+    <li>Drop the files below.</li></ol></div>
+  <label class="drop" id="drop" for="file"><b>Choose tradebook CSV files</b><span class="sub" style="margin:0">or drag them here</span><input id="file" type="file" accept=".csv,text/csv" multiple hidden></label>
+  ${p ? `<div class="panel" style="display:grid;gap:10px">
+    <p style="margin:0">Found <b>${p.fills.length}</b> executions in <b>${p.symbols}</b> symbols, making <b>${p.trades}</b> trades (${p.open} still open).</p>
+    ${p.skipped.length ? `<details><summary class="sub" style="cursor:pointer">${p.skipped.length} rows skipped</summary><ul style="margin:6px 0 0;font-size:13px">${p.skipped.slice(0, 100).map((s) => `<li>${esc(s)}</li>`).join("")}</ul></details>` : ""}
+    <p class="hint" style="margin:0">Options that expired with no closing trade will show as open: close them with exit price 0. Intraday equity trades appear as delivery.</p>
+    <div><button class="btn" id="doimport" ${p.fills.length ? "" : "disabled"}>Import ${p.trades} trades</button></div></div>` : ""}
+  ${S.flash ? `<div class="banner ${S.flash.kind}">${S.flash.html}</div>` : ""}`;
+}
+function bindImport() {
+  bindCommon();
+  const input = app.querySelector("#file"), drop = app.querySelector("#drop");
+  const take = async (files) => {
+    const fills = [], skipped = [];
+    for (const f of files) { const r = parseTradebook(await f.text(), f.name); fills.push(...r.fills); skipped.push(...r.skipped); }
+    const bySym = groupBy(fills);
+    let trades = 0, open = 0;
+    for (const list of bySym.values()) { const b = buildTrades(list); trades += b.length; open += b.filter((t) => t.exit_price === null).length; }
+    S.importPreview = { fills, skipped, symbols: bySym.size, trades, open }; S.flash = null; render();
+  };
+  input.onchange = () => input.files.length && take([...input.files]);
+  drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+  drop.ondragleave = () => drop.classList.remove("over");
+  drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); if (e.dataTransfer.files.length) take([...e.dataTransfer.files]); };
+  const btn = app.querySelector("#doimport");
+  if (btn) btn.onclick = async () => {
+    btn.disabled = true; btn.textContent = "Importing…";
+    try {
+      const res = await runImport(S.importPreview.fills, (msg) => btn.textContent = msg);
+      S.importPreview = null;
+      S.flash = { kind: "ok", html: `Imported ${res.newFills} new executions: ${res.created} new trades, ${res.updated} updated${res.removed ? `, ${res.removed} merged` : ""}. <a href="#trades">Review your trades</a> and add stops and notes.` };
+    } catch (e) { S.flash = { kind: "err", html: e && e.code === "quota_exceeded" ? "Your log is full. Delete some old trades, then import again." : "The import stopped partway. Run it again with the same files; nothing will be duplicated." }; }
+    render();
+  };
+}
+function groupBy(fills) { const m = new Map(); for (const f of fills) { if (!m.has(f.symbol)) m.set(f.symbol, []); m.get(f.symbol).push(f); } return m; }
+async function runImport(fills, progress) {
+  const bySym = groupBy(fills); let newFills = 0, created = 0, updated = 0, removed = 0, i = 0;
+  for (const [symbol, incoming] of bySym) {
+    progress(`Importing ${++i} of ${bySym.size}…`);
+    const key = safeId(symbol);
+    const prev = (await S.store.getFills(key)) || { symbol, fills: [] };
+    const seen = new Set(prev.fills.map((f) => `${f.exchange}|${f.segment}|${f.trade_id}`));
+    const add = incoming.filter((f) => { const k = `${f.exchange}|${f.segment}|${f.trade_id}`; if (seen.has(k)) return false; seen.add(k); return true; });
+    newFills += add.length;
+    const all = prev.fills.concat(add);
+    if (add.length) await S.store.setFills(key, { symbol, fills: all });
+    const built = buildTrades(all), keys = new Set(built.map((b) => b.import_key));
+    for (const b of built) {
+      const id = "c-" + safeId(b.import_key);
+      const ex = S.trades.find((t) => t.id === id);
+      const computed = { symbol: b.symbol, underlying: b.underlying, instrument: b.instrument, option_type: b.option_type, strike: b.strike, expiry: b.expiry,
+        direction: b.direction, quantity: b.quantity, entry_date: b.entry_date, entry_price: b.entry_price, exit_date: b.exit_date, exit_price: b.exit_price };
+      if (ex) {
+        const same = Object.keys(computed).every((k) => (ex[k] ?? null) === (computed[k] ?? null));
+        if (!same) { const { id: _, ...rest } = ex; await S.store.saveTrade(id, { ...rest, ...computed }); updated++; }
+      } else {
+        await S.store.saveTrade(id, { ...computed, source: "csv", import_key: b.import_key, strategy: null, lot_size: null, stop_loss: null, target: null,
+          actual_charges: null, setup: null, followed_plan: null, emotion: null, mistake: null, notes: null, screenshots: [] });
+        created++;
+      }
+    }
+    for (const t of S.trades.filter((t) => t.source === "csv" && t.symbol === symbol && !keys.has(t.import_key))) { await S.store.deleteTrade(t.id); removed++; }
+  }
+  return { newFills, created, updated, removed };
+}
+
+/* ---------- charge rates ---------- */
+const showPct = (v) => String(Number((v * 100).toPrecision(6)));
+function viewRates() {
+  return `
+  <div class="head"><div><h1>Charges</h1><p class="sub">Used to estimate costs when a trade has no actual charges entered. Defaults follow Zerodha's charge list after the April 2026 STT increase.</p></div></div>
+  <form id="rf" class="panel" novalidate>
+    ${Object.entries(RATE_LABELS).map(([k, [label, kind]]) => `<div class="rate-row"><label for="r-${k}">${esc(label)}<small>Default ${kind === "pct" ? showPct(DEFAULT_RATES[k]) + "%" : "₹" + DEFAULT_RATES[k]}</small></label>
+      <input id="r-${k}" name="${k}" data-kind="${kind}" class="num" inputmode="decimal" value="${kind === "pct" ? showPct(S.rates[k]) : S.rates[k]}" style="text-align:right">
+      <span class="sub" style="margin:0">${kind === "pct" ? "%" : "₹"}</span></div>`).join("")}
+    <div class="split" style="margin-top:14px"><button class="btn" type="submit">Save rates</button><button class="btn ghost" type="button" id="reset">Use defaults</button><span id="rmsg" class="sub" style="margin:0"></span></div>
+  </form>
+  ${`<div class="panel" style="display:grid;gap:10px"><h2>Backup</h2>
+    <p class="sub" style="margin:0">${S.store.kind === "local" ? "Your trades are saved in this browser only. Download a backup now and then, and use Restore to move your log to another phone or computer." : "Your trades are saved in your database. A backup file is a copy you keep yourself; restoring adds its trades back (screenshots aren't included)."}</p>
+    <div class="split"><button class="btn ghost" type="button" id="backup">Download backup</button><label class="btn ghost" for="restore">Restore from backup</label><input id="restore" type="file" accept=".json,application/json" hidden><span id="bmsg" class="sub" style="margin:0"></span></div></div>`}`;
+}
+function bindRates() {
+  const f = app.querySelector("#rf"), msg = app.querySelector("#rmsg");
+  const save = async (rates) => {
+    const overrides = {};
+    for (const k of Object.keys(DEFAULT_RATES)) if (Math.abs(rates[k] - DEFAULT_RATES[k]) > 1e-12) overrides[k] = rates[k];
+    await S.store.setRates(overrides); S.rates = { ...DEFAULT_RATES, ...overrides };
+  };
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const next = {};
+    for (const inp of f.querySelectorAll("input[name]")) {
+      const raw = inp.value.trim(), num = raw === "" ? NaN : Number(raw);
+      if (!(num >= 0)) { msg.textContent = `Enter a number for "${RATE_LABELS[inp.name][0]}".`; inp.focus(); return; }
+      next[inp.name] = inp.dataset.kind === "pct" ? num / 100 : num;
+    }
+    try { await save(next); render(); app.querySelector("#rmsg").textContent = "Saved."; } catch { msg.textContent = "Couldn't save. Try again."; }
+  };
+  const bk = app.querySelector("#backup");
+  if (bk) bk.onclick = () => {
+    const trades = {}; S.trades.forEach(({ id, ...t }) => { trades[id] = t; });
+    const data = JSON.stringify({ version: 1, exported: new Date().toISOString(), rates: S.rates, trades }, null, 1);
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([data], { type: "application/json" }));
+    a.download = `trade-log-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    app.querySelector("#bmsg").textContent = "Backup downloaded.";
+  };
+  const rs = app.querySelector("#restore");
+  if (rs) rs.onchange = async () => {
+    const out = app.querySelector("#bmsg");
+    try {
+      const d = JSON.parse(await rs.files[0].text());
+      if (!d || typeof d !== "object" || (d.trades && typeof d.trades !== "object")) throw 0;
+      const entries = Object.entries(d.trades || {});
+      for (let i = 0; i < entries.length; i++) { out.textContent = `Restoring ${i + 1} of ${entries.length}…`; const [id, t] = entries[i]; await S.store.saveTrade(id, t); }
+      if (d.rates) { const o = {}; for (const k of Object.keys(DEFAULT_RATES)) if (typeof d.rates[k] === "number" && Math.abs(d.rates[k] - DEFAULT_RATES[k]) > 1e-12) o[k] = d.rates[k]; await S.store.setRates(o); S.rates = { ...DEFAULT_RATES, ...o }; }
+      out.textContent = `Restored ${entries.length} trades.`;
+    } catch { out.textContent = "That file isn't a Trade Log backup."; }
+  };
+  app.querySelector("#reset").onclick = async () => { try { await save({ ...DEFAULT_RATES }); render(); app.querySelector("#rmsg").textContent = "Back to defaults."; } catch { msg.textContent = "Couldn't save. Try again."; } };
+}
+
+/* ---------- sign in ---------- */
+function viewLogin() {
+  return `<div class="panel view" style="max-width:440px;margin:32px auto;display:grid;gap:14px">
+    <h1>Sign in to Trade Log</h1>
+    <p class="sub" style="margin:0">Enter your email and we'll send you a sign-in link. No password needed.</p>
+    <form id="lf" style="display:grid;gap:10px" novalidate>
+      <label class="f"><span>Email</span><input id="l-email" type="email" autocomplete="email" required placeholder="you@example.com"></label>
+      <button class="btn" type="submit">Email me a link</button>
+    </form>
+    <p id="lmsg" class="sub" style="margin:0" role="status"></p></div>`;
+}
+function bindLogin() {
+  const f = app.querySelector("#lf"), msg = app.querySelector("#lmsg");
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const email = app.querySelector("#l-email").value.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) { msg.textContent = "Enter a valid email address."; return; }
+    f.querySelector("button").disabled = true;
+    const { error } = await S.sb.auth.signInWithOtp({ email, options: { emailRedirectTo: location.origin + location.pathname } });
+    f.querySelector("button").disabled = false;
+    msg.textContent = error ? `Couldn't send the link: ${error.message}` : `Check ${email} for your sign-in link. Open it on this device.`;
+  };
+}
+
+/* ---------- boot ---------- */
+function start(store, label) {
+  S.store = store;
+  document.getElementById("where").textContent = label;
+  store.getRates().then((r) => { if (r) { S.rates = { ...DEFAULT_RATES, ...r }; if (S.loaded) render(); } }).catch(() => {});
+  store.watchTrades((list) => {
+    S.trades = list; S.loaded = true;
+    const active = document.activeElement;
+    if (S.view === "log" && active && app.contains(active) && S.editId && list.some((t) => t.id === S.editId)) return; // don't wipe a form mid-edit
+    render();
+  }, () => { document.getElementById("where").textContent = "offline"; });
+}
+async function boot() {
+  route();
+  const cfg = window.TRADELOG_CONFIG || {};
+  if (window.supabase && cfg.supabaseUrl && cfg.supabaseAnonKey && !/YOUR-/.test(cfg.supabaseUrl + cfg.supabaseAnonKey)) {
+    const sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
+    S.sb = sb;
+    const begin = (session) => {
+      S.needLogin = false;
+      if (/access_token|error_description/.test(location.hash)) history.replaceState(null, "", location.pathname + "#dashboard");
+      const so = document.getElementById("signout"); so.hidden = false; so.onclick = async () => { await sb.auth.signOut(); location.reload(); };
+      start(supaStore(sb, session.user.id), "synced · " + session.user.email);
+    };
+    const { data: { session } } = await sb.auth.getSession();
+    if (session) begin(session); else { S.needLogin = true; document.getElementById("where").textContent = "signed out"; render(); }
+    sb.auth.onAuthStateChange((ev, sess) => { if (sess && !S.store) { begin(sess); route(); } });
+    return;
+  }
+  if (!window.claude || !window.claude.use) { start(localStore(), "saved on this device · database not set up"); return; }
+  try {
+    const [db, user] = await Promise.all([window.claude.use("db"), window.claude.use("user")]);
+    const uid = user ? await user.id() : null;
+    if (db && uid) start(dbStore(db, uid), "private · synced");
+    else start(localStore(), "saved on this device");
+  } catch { start(localStore(), "saved on this device"); }
+}
+boot();
+</script>
+
+</body>
+</html>
