@@ -511,7 +511,7 @@ function render() {
    where the multiplier is the lot size for stock futures and ₹ per point per lot for MCX contracts. */
 const SZ = {
   tab: "cash",
-  cash: { dir: "Long", risk: "2000", entry: "", sl: "", slMode: "price", tg: "", tgMode: "price" },
+  cash: { dir: "Long", cap: "100000", risk: "2000", riskMode: "amt", entry: "", sl: "", slMode: "price", tg: "", tgMode: "price" },
   fut:  { dir: "Long", lots: "1", mult: "", entry: "", sl: "", slMode: "price", tg: "", tgMode: "price" },
   comm: { dir: "Long", lots: "1", mult: "10", entry: "", sl: "", slMode: "price", tg: "", tgMode: "price" },
 };
@@ -519,6 +519,7 @@ const MCX = [["GOLDM", 10], ["GOLD", 100], ["SILVERM", 5], ["SILVER", 30], ["CRU
 const inr2 = (n) => inr(n, 2);
 const ptsF = (n) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
+function szRiskRs(st) { return st.riskMode === "pct" ? +st.cap * +st.risk / 100 : +st.risk; }
 function szLevels(st) {
   const sg = st.dir === "Long" ? 1 : -1, e = +st.entry, slv = +st.sl, tgv = +st.tg;
   const sl = st.slMode === "pct" ? e * (1 - sg * slv / 100) : slv;
@@ -531,7 +532,8 @@ function szCompute() {
   const L = szLevels(st);
   const out = { slEcho: "", tgEcho: "", flags: [] };
   const fail = (m) => ({ ...out, err: m });
-  if (tab === "cash" && !(+st.risk > 0)) return fail("Enter your max loss per trade.");
+  if (tab === "cash" && !(+st.cap > 0)) return fail("Enter your trading capital.");
+  if (tab === "cash" && !(+st.risk > 0)) return fail("Enter your risk per trade.");
   if (tab !== "cash" && !(Math.floor(+st.lots) > 0)) return fail("Enter the number of lots.");
   if (tab !== "cash" && !(+st.mult > 0)) return fail(tab === "fut" ? "Enter the shares in a lot." : "Enter the multiplier.");
   if (!(L.e > 0)) return fail("Enter the entry price.");
@@ -545,11 +547,16 @@ function szCompute() {
   if (rr !== null && rr < 2) out.flags.push(["", `The target pays only ${rr.toFixed(1)}× the risk. Aim for 2× or more.`]);
 
   if (tab === "cash") {
-    const risk = +st.risk, shares = Math.floor(risk / L.riskPts);
-    if (shares === 0) out.flags.push(["err", `One share risks ${inr2(L.riskPts)}, more than your ${inr(risk)} limit.`]);
+    const cap = +st.cap, risk = szRiskRs(st);
+    const byRisk = Math.floor(risk / L.riskPts), byCap = Math.floor(cap / L.e);
+    const shares = Math.min(byRisk, byCap), capped = byCap < byRisk;
+    if (byRisk === 0) out.flags.push(["err", `One share risks ${inr2(L.riskPts)}, more than your ${inr(risk)} limit.`]);
+    else if (byCap === 0) out.flags.push(["err", `One share costs ${inr2(L.e)}, more than your ${inr(cap)} capital.`]);
+    else if (capped) out.flags.push(["", `Limited by capital: your risk allows ${byRisk.toLocaleString("en-IN")} shares, but ${inr(cap)} buys only ${byCap.toLocaleString("en-IN")}. The loss at stop-loss is below your limit.`]);
     if (st.dir === "Short") out.flags.push(["", "Short selling stocks in the cash segment is intraday only in India."]);
     return { ...out, L, rr, qty: shares, value: shares * L.e, loss: shares * L.riskPts, win: rr !== null ? shares * L.rewPts : null,
-      how: `${inr(risk)} ÷ ${inr2(L.riskPts)} risk per share, rounded down` };
+      how: capped ? `${inr(cap)} ÷ ${inr2(L.e)} per share, limited by capital` : `${inr(risk)} ÷ ${inr2(L.riskPts)} risk per share, rounded down`,
+      capUsed: shares * L.e / cap };
   }
   const lots = Math.floor(+st.lots), m = +st.mult, perPt = lots * m, lw = lots === 1 ? "lot" : "lots";
   const work = (d) => tab === "fut" ? `₹${ptsF(d)} × ${ptsF(m)} shares × ${lots} ${lw}` : `${ptsF(d)} pts × ₹${ptsF(m)} × ${lots} ${lw}`;
@@ -566,7 +573,7 @@ function szOut() {
     const verb = SZ.cash.dir === "Long" ? "Buy" : "Sell";
     return `<div class="panel answer" style="display:grid;gap:14px">
       <div><div class="k">${verb}</div><div class="big ${r.qty ? "pos" : ""}">${r.qty.toLocaleString("en-IN")} ${r.qty === 1 ? "share" : "shares"}</div><div class="how">${esc(r.how)}</div></div>
-      <dl class="kv"><dt>Position value</dt><dd>${inr(r.value)}</dd>
+      <dl class="kv"><dt>Position value</dt><dd>${inr(r.value)} <span style="color:var(--muted)">(${pct(r.capUsed)} of capital)</span></dd>
       <dt>Loss at stop-loss</dt><dd class="neg">${inr(-r.loss)}</dd>
       <dt>Profit at target</dt><dd class="pos">${r.win === null ? "–" : "+" + inr(r.win)}</dd>
       <dt>Reward : risk</dt><dd>${rrTxt}</dd></dl>
@@ -597,7 +604,12 @@ function viewSizer() {
       `<button type="button" data-dir="${d}" aria-pressed="${st.dir === d}">${d}</button>`).join("")}</div>`;
   let fields = "";
   if (tab === "cash") {
-    fields = `<label class="fld"><span>Max loss per trade ₹</span>${num("risk", st.risk, "100")}</label>
+    fields = `<label class="fld"><span>Trading capital ₹</span>${num("cap", st.cap, "1000")}</label>
+      <div class="fld"><div class="lab"><span>Risk per trade</span>
+        <div class="seg" role="group" aria-label="Risk entered as">
+          <button type="button" data-risk="amt" aria-pressed="${st.riskMode === "amt"}">₹</button>
+          <button type="button" data-risk="pct" aria-pressed="${st.riskMode === "pct"}">%</button></div></div>
+        ${num("risk", st.risk, st.riskMode === "pct" ? "0.1" : "100")}<div class="echo" id="sz-riskEcho"></div></div>
       <label class="fld"><span>Entry price ₹</span>${num("entry", st.entry)}</label>`;
   } else {
     fields = `<div class="two">
@@ -625,6 +637,8 @@ function szRefresh() {
   const r = szCompute();
   const se = document.getElementById("sz-slEcho"), te = document.getElementById("sz-tgEcho");
   if (se) se.textContent = r.slEcho || ""; if (te) te.textContent = r.tgEcho || "";
+  const re = document.getElementById("sz-riskEcho"), cs = SZ.cash;
+  if (re) re.textContent = +cs.cap > 0 && +cs.risk > 0 ? (cs.riskMode === "pct" ? `= ${inr(szRiskRs(cs))} per trade` : `= ${(+cs.risk / +cs.cap * 100).toFixed(2)}% of capital`) : "";
   const btn = document.getElementById("sz-log");
   if (btn) btn.onclick = () => {
     const st = SZ[SZ.tab], L = r.L, fut = SZ.tab === "fut";
@@ -656,8 +670,14 @@ function bindSizer() {
     if (e > 0 && v > 0) st[key] = mode === "pct" ? (away * (v - e) / e * 100).toFixed(2) : (e * (1 + away * v / 100)).toFixed(2);
     st[key + "Mode"] = mode; render();
   });
+  app.querySelectorAll("[data-risk]").forEach((b) => b.onclick = () => {
+    const mode = b.dataset.risk; if (st.riskMode === mode) return;
+    const cap = +st.cap, v = +st.risk;
+    if (cap > 0 && v > 0) st.risk = mode === "pct" ? +(v / cap * 100).toFixed(2) + "" : Math.round(cap * v / 100) + "";
+    st.riskMode = mode; render();
+  });
   app.querySelectorAll("[data-mult]").forEach((b) => b.onclick = () => { st.mult = b.dataset.mult; render(); });
-  for (const k of ["risk", "lots", "mult", "entry", "sl", "tg"]) {
+  for (const k of ["cap", "risk", "lots", "mult", "entry", "sl", "tg"]) {
     const inp = document.getElementById("sz-" + k);
     if (inp) inp.oninput = () => { st[k] = inp.value; szRefresh(); };
   }
