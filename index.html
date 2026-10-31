@@ -156,6 +156,32 @@ ol.steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
 .add-shot { border: 1.5px dashed var(--line); border-radius: 8px; display: grid; place-items: center; aspect-ratio: 16 / 10; color: var(--muted); font-size: 13px; cursor: pointer; text-align: center; padding: 8px; }
 .add-shot:hover { border-color: var(--accent); color: var(--accent); }
 .daychip { display: inline-flex; gap: 6px; align-items: center; }
+/* position sizer */
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; max-width: 100%; }
+.seg button { appearance: none; border: 0; background: var(--surface); color: var(--muted); font: 500 13px var(--body); padding: 5px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
+.seg button[data-dir="Short"][aria-pressed="true"] { background: var(--loss); color: #fff; }
+.seg.wide { display: flex; width: 100%; } .seg.wide button { flex: 1; padding: 9px 12px; font-weight: 600; font-size: 14px; }
+.seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.sz { display: grid; gap: 16px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
+@media (max-width: 820px) { .sz { grid-template-columns: 1fr; } }
+.sz-in { display: grid; gap: 14px; }
+.fld { display: grid; gap: 4px; min-width: 0; }
+.fld .lab { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.fld .lab > span, .fld > span { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--muted); }
+.fld .echo { font-size: 12px; color: var(--muted); min-height: 1.3em; }
+.two { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.answer .k { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); font-weight: 600; }
+.answer .big { font-family: var(--mono); font-size: 34px; line-height: 1.15; font-weight: 500; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin-top: 2px; }
+.answer .how { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.pl { display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.pl > div { border-radius: var(--radius); padding: 12px 14px; min-width: 0; }
+.pl .w { background: var(--gain-soft); } .pl .l { background: var(--loss-soft); }
+.pl .big { font-size: 26px; }
+@media (max-width: 380px) { .pl { grid-template-columns: 1fr; } }
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 16px; margin: 0; font-size: 14px; }
+.kv dt { color: var(--muted); } .kv dd { margin: 0; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: no-preference) { .view { animation: rise .18s ease-out; } @keyframes rise { from { transform: translateY(4px); opacity: .6 } to { transform: none; opacity: 1 } } }
 </style>
 
@@ -168,6 +194,7 @@ ol.steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
       <a href="#dashboard" data-view="dashboard">Dashboard</a>
       <a href="#trades" data-view="trades">Trades</a>
       <a href="#log" data-view="log">Log trade</a>
+      <a href="#size" data-view="size">Position size</a>
       <a href="#import" data-view="import">Import</a>
       <a href="#rates" data-view="rates">Charges</a>
     </nav>
@@ -461,8 +488,8 @@ function setView(v) {
 }
 function route() {
   const h = (location.hash || "#dashboard").slice(1);
-  if (h !== "log") S.editId = null;
-  setView(["dashboard", "trades", "log", "import", "rates"].includes(h) ? h : "dashboard");
+  if (h !== "log") { S.editId = null; S.prefill = null; }
+  setView(["dashboard", "trades", "log", "size", "import", "rates"].includes(h) ? h : "dashboard");
 }
 window.addEventListener("hashchange", route);
 function go(v) { if (location.hash === "#" + v) route(); else location.hash = v; }
@@ -472,10 +499,169 @@ function render() {
   if (S.needLogin) { app.innerHTML = viewLogin(); bindLogin(); return; }
   if (v === "log" && S.formFor !== S.editId) { S.shotQueue.forEach((q) => URL.revokeObjectURL(q.url)); S.shotQueue = []; S.shotRemove = new Set(); S.formFor = S.editId; }
   if (v !== "log") S.formFor = undefined;
-  if (!S.loaded) { app.innerHTML = `<div class="panel empty view"><p>Loading your trades…</p></div>`; return; }
+  if (!S.loaded && v !== "size") { app.innerHTML = `<div class="panel empty view"><p>Loading your trades…</p></div>`; return; }
   app.innerHTML = `<div class="view" style="display:grid;gap:20px">${
-    v === "trades" ? viewTrades() : v === "log" ? viewForm() : v === "import" ? viewImport() : v === "rates" ? viewRates() : viewDashboard()}</div>`;
-  if (v === "trades") bindTrades(); if (v === "log") bindForm(); if (v === "import") bindImport(); if (v === "rates") bindRates(); if (v === "dashboard") bindDashboard();
+    v === "trades" ? viewTrades() : v === "log" ? viewForm() : v === "size" ? viewSizer() : v === "import" ? viewImport() : v === "rates" ? viewRates() : viewDashboard()}</div>`;
+  if (v === "trades") bindTrades(); if (v === "log") bindForm(); if (v === "size") bindSizer(); if (v === "import") bindImport(); if (v === "rates") bindRates(); if (v === "dashboard") bindDashboard();
+}
+
+/* ---------- position sizer ----------
+   Stock (cash): shares = max loss ÷ (entry − stop), rounded down.
+   Stock futures and commodity: P&L = points moved × multiplier × lots,
+   where the multiplier is the lot size for stock futures and ₹ per point per lot for MCX contracts. */
+const SZ = {
+  tab: "cash",
+  cash: { dir: "Long", risk: "2000", entry: "", sl: "", slMode: "price", tg: "", tgMode: "price" },
+  fut:  { dir: "Long", lots: "1", mult: "", entry: "", sl: "", slMode: "price", tg: "", tgMode: "price" },
+  comm: { dir: "Long", lots: "1", mult: "10", entry: "", sl: "", slMode: "price", tg: "", tgMode: "price" },
+};
+const MCX = [["GOLDM", 10], ["GOLD", 100], ["SILVERM", 5], ["SILVER", 30], ["CRUDEOILM", 10], ["CRUDEOIL", 100], ["NATURALGAS", 1250]];
+const inr2 = (n) => inr(n, 2);
+const ptsF = (n) => n.toLocaleString("en-IN", { maximumFractionDigits: 2 });
+
+function szLevels(st) {
+  const sg = st.dir === "Long" ? 1 : -1, e = +st.entry, slv = +st.sl, tgv = +st.tg;
+  const sl = st.slMode === "pct" ? e * (1 - sg * slv / 100) : slv;
+  const tg = tgv > 0 ? (st.tgMode === "pct" ? e * (1 + sg * tgv / 100) : tgv) : 0;
+  return { sg, e, sl, tg, riskPts: sg * (e - sl), rewPts: tg ? sg * (tg - e) : 0, side: st.dir === "Long" ? ["below", "above"] : ["above", "below"] };
+}
+
+function szCompute() {
+  const tab = SZ.tab, st = SZ[tab];
+  const L = szLevels(st);
+  const out = { slEcho: "", tgEcho: "", flags: [] };
+  const fail = (m) => ({ ...out, err: m });
+  if (tab === "cash" && !(+st.risk > 0)) return fail("Enter your max loss per trade.");
+  if (tab !== "cash" && !(Math.floor(+st.lots) > 0)) return fail("Enter the number of lots.");
+  if (tab !== "cash" && !(+st.mult > 0)) return fail(tab === "fut" ? "Enter the shares in a lot." : "Enter the multiplier.");
+  if (!(L.e > 0)) return fail("Enter the entry price.");
+  if (!(+st.sl > 0)) return fail("Enter the stop-loss.");
+  if (!(L.riskPts > 0)) return fail(`For a ${st.dir.toLowerCase()}, the stop-loss must be ${L.side[0]} the entry.`);
+  out.slEcho = st.slMode === "pct" ? `Stop-loss at ${inr2(L.sl)}` : `${(L.riskPts / L.e * 100).toFixed(2)}% ${L.side[0]} entry`;
+  if (L.tg) out.tgEcho = st.tgMode === "pct" ? `Target at ${inr2(L.tg)}` : `${Math.abs((L.tg - L.e) / L.e * 100).toFixed(2)}% ${L.tg > L.e ? "above" : "below"} entry`;
+  if (L.tg && !(L.rewPts > 0)) out.flags.push(["err", `For a ${st.dir.toLowerCase()}, the target must be ${L.side[1]} the entry.`]);
+  if (!L.tg) out.flags.push(["", "Enter a target to see the profit."]);
+  const rr = L.rewPts > 0 ? L.rewPts / L.riskPts : null;
+  if (rr !== null && rr < 2) out.flags.push(["", `The target pays only ${rr.toFixed(1)}× the risk. Aim for 2× or more.`]);
+
+  if (tab === "cash") {
+    const risk = +st.risk, shares = Math.floor(risk / L.riskPts);
+    if (shares === 0) out.flags.push(["err", `One share risks ${inr2(L.riskPts)}, more than your ${inr(risk)} limit.`]);
+    if (st.dir === "Short") out.flags.push(["", "Short selling stocks in the cash segment is intraday only in India."]);
+    return { ...out, L, rr, qty: shares, value: shares * L.e, loss: shares * L.riskPts, win: rr !== null ? shares * L.rewPts : null,
+      how: `${inr(risk)} ÷ ${inr2(L.riskPts)} risk per share, rounded down` };
+  }
+  const lots = Math.floor(+st.lots), m = +st.mult, perPt = lots * m, lw = lots === 1 ? "lot" : "lots";
+  const work = (d) => tab === "fut" ? `₹${ptsF(d)} × ${ptsF(m)} shares × ${lots} ${lw}` : `${ptsF(d)} pts × ₹${ptsF(m)} × ${lots} ${lw}`;
+  return { ...out, L, rr, lots, value: perPt * L.e, loss: perPt * L.riskPts, win: rr !== null ? perPt * L.rewPts : null,
+    lossHow: work(L.riskPts), winHow: rr !== null ? work(L.rewPts) : "" };
+}
+
+function szOut() {
+  const r = szCompute(), tab = SZ.tab;
+  const flags = (list) => list.map(([k, m]) => `<div class="banner ${k}">${esc(m)}</div>`).join("");
+  if (r.err) return `<div class="panel answer"><div class="k">Result</div><div class="big" style="color:var(--muted)">–</div></div>${flags([["err", r.err]])}`;
+  const rrTxt = r.rr === null ? "–" : r.rr.toFixed(2) + " : 1";
+  if (tab === "cash") {
+    const verb = SZ.cash.dir === "Long" ? "Buy" : "Sell";
+    return `<div class="panel answer" style="display:grid;gap:14px">
+      <div><div class="k">${verb}</div><div class="big ${r.qty ? "pos" : ""}">${r.qty.toLocaleString("en-IN")} ${r.qty === 1 ? "share" : "shares"}</div><div class="how">${esc(r.how)}</div></div>
+      <dl class="kv"><dt>Position value</dt><dd>${inr(r.value)}</dd>
+      <dt>Loss at stop-loss</dt><dd class="neg">${inr(-r.loss)}</dd>
+      <dt>Profit at target</dt><dd class="pos">${r.win === null ? "–" : "+" + inr(r.win)}</dd>
+      <dt>Reward : risk</dt><dd>${rrTxt}</dd></dl>
+      ${r.qty ? `<div class="split"><button class="btn" type="button" id="sz-log">Log this trade</button><span class="hint" style="margin:0">Opens the log form with these numbers filled in.</span></div>` : ""}
+    </div>${flags(r.flags)}`;
+  }
+  return `<div class="panel answer" style="display:grid;gap:14px">
+    <div class="pl">
+      <div class="w"><div class="k">Profit at target</div><div class="big pos">${r.win === null ? "–" : "+" + inr(r.win)}</div><div class="how">${esc(r.winHow)}</div></div>
+      <div class="l"><div class="k">Loss at stop-loss</div><div class="big neg">${inr(-r.loss)}</div><div class="how">${esc(r.lossHow)}</div></div>
+    </div>
+    <dl class="kv"><dt>Reward : risk</dt><dd>${rrTxt}</dd><dt>Contract value</dt><dd>${inr(r.value)}</dd></dl>
+    ${tab === "fut" ? `<div class="split"><button class="btn" type="button" id="sz-log">Log this trade</button><span class="hint" style="margin:0">Opens the log form with these numbers filled in.</span></div>`
+      : `<p class="hint" style="margin:0">The log covers NSE equity and F&amp;O, so commodity trades aren't logged from here.</p>`}
+  </div>${flags(r.flags)}`;
+}
+
+function viewSizer() {
+  const tab = SZ.tab, st = SZ[tab];
+  const tb = (k, label) => `<button type="button" class="chip" data-sztab="${k}" aria-pressed="${tab === k}">${label}</button>`;
+  const num = (id, val, step = "0.05", mode = "decimal") => `<input id="sz-${id}" class="num" type="number" inputmode="${mode}" step="${step}" value="${esc(val)}">`;
+  const lvl = (key, label) => `<div class="fld"><div class="lab"><span>${label}</span>
+      <div class="seg" role="group" aria-label="${label} entered as">
+        <button type="button" data-mode="${key}" data-v="price" aria-pressed="${st[key + "Mode"] === "price"}">Price</button>
+        <button type="button" data-mode="${key}" data-v="pct" aria-pressed="${st[key + "Mode"] === "pct"}">%</button></div></div>
+      <div style="position:relative">${num(key, st[key])}</div><div class="echo" id="sz-${key}Echo"></div></div>`;
+  const dir = `<div class="seg wide" role="group" aria-label="Direction">${["Long", "Short"].map((d) =>
+      `<button type="button" data-dir="${d}" aria-pressed="${st.dir === d}">${d}</button>`).join("")}</div>`;
+  let fields = "";
+  if (tab === "cash") {
+    fields = `<label class="fld"><span>Max loss per trade ₹</span>${num("risk", st.risk, "100")}</label>
+      <label class="fld"><span>Entry price ₹</span>${num("entry", st.entry)}</label>`;
+  } else {
+    fields = `<div class="two">
+        <label class="fld"><span>No. of lots</span>${num("lots", st.lots, "1", "numeric")}</label>
+        <label class="fld"><span>${tab === "fut" ? "Shares in a lot" : "Multiplier ₹ per point"}</span>${num("mult", st.mult, "1")}</label></div>
+      ${tab === "comm" ? `<div class="years" role="group" aria-label="Fill multiplier">${MCX.map(([n, m]) =>
+        `<button type="button" class="chip" data-mult="${m}">${n} ${m.toLocaleString("en-IN")}</button>`).join("")}</div>
+        <p class="hint" style="margin:0">Rupees one lot gains or loses for a 1-point move. GOLDM: 100 g lot quoted per 10 g, so 1 point = ₹10.</p>` : ""}
+      <label class="fld"><span>Entry price ₹</span>${num("entry", st.entry)}</label>`;
+  }
+  return `
+  <div class="head"><div><h1>Position size</h1><p class="sub">Work out the size before you place the order, then send it to the log.</p></div></div>
+  <div class="years" role="group" aria-label="Instrument">${tb("cash", "Stock (cash)")}${tb("fut", "Stock futures")}${tb("comm", "Commodity")}</div>
+  <div class="sz">
+    <form class="panel sz-in" id="szf" novalidate onsubmit="return false">
+      ${dir}${fields}${lvl("sl", "Stop-loss")}${lvl("tg", "Target")}
+    </form>
+    <div id="sz-out" style="display:grid;gap:12px" aria-live="polite">${szOut()}</div>
+  </div>`;
+}
+
+function szRefresh() {
+  const out = document.getElementById("sz-out"); if (!out) return;
+  out.innerHTML = szOut();
+  const r = szCompute();
+  const se = document.getElementById("sz-slEcho"), te = document.getElementById("sz-tgEcho");
+  if (se) se.textContent = r.slEcho || ""; if (te) te.textContent = r.tgEcho || "";
+  const btn = document.getElementById("sz-log");
+  if (btn) btn.onclick = () => {
+    const st = SZ[SZ.tab], L = r.L, fut = SZ.tab === "fut";
+    S.editId = null;
+    S.prefill = {
+      instrument: fut ? "Futures" : "Equity delivery", direction: st.dir,
+      lots: fut ? r.lots : "", lot_size: fut ? +st.mult : "", quantity: fut ? r.lots * +st.mult : r.qty,
+      entry_price: +L.e.toFixed(2), stop_loss: +L.sl.toFixed(2), target: L.tg ? +L.tg.toFixed(2) : "",
+    };
+    go("log");
+  };
+}
+
+function bindSizer() {
+  const st = SZ[SZ.tab];
+  app.querySelectorAll("[data-sztab]").forEach((b) => b.onclick = () => { SZ.tab = b.dataset.sztab; render(); });
+  app.querySelectorAll("[data-dir]").forEach((b) => b.onclick = () => {
+    const d = b.dataset.dir; if (d === st.dir) return;
+    const e = +st.entry;
+    if (e > 0) { // keep the same distances on the other side of the entry
+      if (st.slMode === "price" && +st.sl > 0) st.sl = (2 * e - +st.sl).toFixed(2);
+      if (st.tgMode === "price" && +st.tg > 0) st.tg = (2 * e - +st.tg).toFixed(2);
+    }
+    st.dir = d; render();
+  });
+  app.querySelectorAll("[data-mode]").forEach((b) => b.onclick = () => {
+    const key = b.dataset.mode, mode = b.dataset.v; if (st[key + "Mode"] === mode) return;
+    const e = +st.entry, v = +st[key], sg = st.dir === "Long" ? 1 : -1, away = key === "sl" ? -sg : sg;
+    if (e > 0 && v > 0) st[key] = mode === "pct" ? (away * (v - e) / e * 100).toFixed(2) : (e * (1 + away * v / 100)).toFixed(2);
+    st[key + "Mode"] = mode; render();
+  });
+  app.querySelectorAll("[data-mult]").forEach((b) => b.onclick = () => { st.mult = b.dataset.mult; render(); });
+  for (const k of ["risk", "lots", "mult", "entry", "sl", "tg"]) {
+    const inp = document.getElementById("sz-" + k);
+    if (inp) inp.oninput = () => { st[k] = inp.value; szRefresh(); };
+  }
+  szRefresh();
 }
 
 /* ---------- dashboard ---------- */
@@ -662,10 +848,11 @@ function bindTrades() {
 /* ---------- log / edit form ---------- */
 function viewForm() {
   const t = S.trades.find((x) => x.id === S.editId) || null;
-  const v = (k) => (t && t[k] !== null && t[k] !== undefined ? esc(t[k]) : "");
-  const lots = t && t.lot_size ? t.quantity / t.lot_size : "";
+  const pf = (!t && S.prefill) || {};  // values sent over from the position sizer
+  const v = (k) => (t ? (t[k] !== null && t[k] !== undefined ? esc(t[k]) : "") : (pf[k] !== null && pf[k] !== undefined ? esc(pf[k]) : ""));
+  const lots = t && t.lot_size ? t.quantity / t.lot_size : (pf.lots ?? "");
   const m = t ? metrics(t, S.rates) : null;
-  const inst = t ? t.instrument : "Futures";
+  const inst = t ? t.instrument : pf.instrument || "Futures";
   return `
   <div class="head"><div><h1>${t ? esc(t.symbol) : "Log a trade"}</h1>${t ? `<p class="sub">${t.source === "csv" ? "Imported from your tradebook. Re-importing updates prices and dates but keeps your plan, tags and notes." : "Logged by hand."}</p>` : `<p class="sub">Write the plan before you place the order: entry, stop and target.</p>`}</div>
   ${m && !m.open ? `<div class="calc"><span>Gross <b class="${tone(m.gross)}">${inr(m.gross)}</b></span><span>Charges <b>${inr(m.charges)}</b>${m.estimated ? " est." : ""}</span><span>Net <b class="${tone(m.net)}">${inr(m.net)}</b></span>${m.rr !== null ? `<span><b>${m.rr.toFixed(2)}R</b></span>` : ""}</div>` : ""}</div>
@@ -673,7 +860,7 @@ function viewForm() {
     <fieldset><legend>Instrument</legend><div class="grid4">
       <label class="f"><span>Symbol</span><input id="f-symbol" name="symbol" required value="${v("symbol")}" placeholder="ITC" autocapitalize="characters"></label>
       <label class="f"><span>Instrument</span><select id="f-instrument" name="instrument">${opts(INSTRUMENTS, inst, false)}</select></label>
-      <label class="f"><span>Long / Short</span><select id="f-direction" name="direction">${opts(["Long", "Short"], t ? t.direction : "Long", false)}</select></label>
+      <label class="f"><span>Long / Short</span><select id="f-direction" name="direction">${opts(["Long", "Short"], t ? t.direction : pf.direction || "Long", false)}</select></label>
       <label class="f"><span>Strategy</span><select id="f-strategy" name="strategy">${opts(STRATEGIES, t && t.strategy)}</select></label>
       <label class="f fo"><span>Expiry</span><input id="f-expiry" name="expiry" type="date" value="${v("expiry")}"></label>
       <label class="f opt"><span>CE / PE</span><select id="f-option_type" name="option_type">${opts(["CE", "PE"], t && t.option_type)}</select></label>
@@ -770,7 +957,7 @@ function bindForm() {
         await S.store.removeShots([...S.shotRemove]);
         await S.store.saveTrade(id, { ...data, screenshots: data.screenshots.concat(added) });
       }
-      S.editId = null; go("trades");
+      S.editId = null; S.prefill = null; go("trades");
     }
     catch (e2) { f.querySelector('button[type="submit"]').disabled = false; err(e2 && e2.code === "quota_exceeded" ? "Your log is full. Delete some old trades and try again." : "Couldn't save. Check your connection and try again."); }
   };
@@ -941,6 +1128,7 @@ function start(store, label) {
     S.trades = list; S.loaded = true;
     const active = document.activeElement;
     if (S.view === "log" && active && app.contains(active) && S.editId && list.some((t) => t.id === S.editId)) return; // don't wipe a form mid-edit
+    if (S.view === "size") return; // the sizer doesn't use trades; don't steal focus mid-typing
     render();
   }, () => { document.getElementById("where").textContent = "offline"; });
 }
